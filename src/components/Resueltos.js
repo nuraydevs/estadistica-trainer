@@ -4,7 +4,7 @@ export function render(container, { state }) {
   container.innerHTML = '';
 
   let activeTema = state._uiResueltosTema || 1;
-  let activeType = state._uiResueltosType || 'todos';
+  let activeType = 'todos';
   const openItems = new Set();
 
   const tabs = document.createElement('div');
