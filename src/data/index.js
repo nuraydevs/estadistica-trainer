@@ -98,21 +98,40 @@ export const ALL_EJERCICIOS = [
   ...tema5Ejercicios.map((e) => ({ ...e, tema: 5 }))
 ];
 
+function makePendingResueltos(tema, ejercicios, resueltos) {
+  const solvedNotes = new Set(resueltos.map((r) => r.sourceNote));
+  return ejercicios
+    .filter((ejercicio) => ejercicio.hasSolution && !solvedNotes.has(ejercicio.sourceNote))
+    .map((ejercicio) => ({
+      id: `t${tema}-r-pending-${ejercicio.numero}`,
+      statement: ejercicio.statement,
+      sourceNote: ejercicio.sourceNote,
+      type: ejercicio.type,
+      relatedConcepts: [],
+      solution: [
+        { step: 1, title: 'Pendiente', content: '<p>Solución pendiente de verificación.</p>' }
+      ],
+      finalAnswer: '<strong>Pendiente</strong>',
+      notes: 'PENDIENTE PARA CLAUDE CODE — resolver y verificar.',
+      unverified: true
+    }));
+}
+
 // ─── Resueltos (con solución paso a paso)
 export const RESUELTOS_BY_TEMA = {
-  1: tema1Resueltos,
-  2: tema2Resueltos,
-  3: tema3Resueltos,
-  4: tema4Resueltos,
-  5: tema5Resueltos
+  1: [...tema1Resueltos, ...makePendingResueltos(1, tema1Ejercicios, tema1Resueltos)],
+  2: [...tema2Resueltos, ...makePendingResueltos(2, tema2Ejercicios, tema2Resueltos)],
+  3: [...tema3Resueltos, ...makePendingResueltos(3, tema3Ejercicios, tema3Resueltos)],
+  4: [...tema4Resueltos, ...makePendingResueltos(4, tema4Ejercicios, tema4Resueltos)],
+  5: [...tema5Resueltos, ...makePendingResueltos(5, tema5Ejercicios, tema5Resueltos)]
 };
 
 export const ALL_RESUELTOS = [
-  ...tema1Resueltos.map((e) => ({ ...e, tema: 1 })),
-  ...tema2Resueltos.map((e) => ({ ...e, tema: 2 })),
-  ...tema3Resueltos.map((e) => ({ ...e, tema: 3 })),
-  ...tema4Resueltos.map((e) => ({ ...e, tema: 4 })),
-  ...tema5Resueltos.map((e) => ({ ...e, tema: 5 }))
+  ...RESUELTOS_BY_TEMA[1].map((e) => ({ ...e, tema: 1 })),
+  ...RESUELTOS_BY_TEMA[2].map((e) => ({ ...e, tema: 2 })),
+  ...RESUELTOS_BY_TEMA[3].map((e) => ({ ...e, tema: 3 })),
+  ...RESUELTOS_BY_TEMA[4].map((e) => ({ ...e, tema: 4 })),
+  ...RESUELTOS_BY_TEMA[5].map((e) => ({ ...e, tema: 5 }))
 ];
 
 // ─── Aprendizaje

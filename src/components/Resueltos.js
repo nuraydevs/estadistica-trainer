@@ -74,7 +74,7 @@ export function render(container, { state }) {
           <strong>${item.sourceNote}</strong>
           ${item.type ? `<span class="exercise__source">${item.type}</span>` : ''}
         </div>
-        ${item.type ? `<span class="badge badge--medium">${item.type}</span>` : ''}
+        ${item.unverified ? '<span class="badge badge--high">pendiente</span>' : item.type ? `<span class="badge badge--medium">${item.type}</span>` : ''}
       `;
       card.appendChild(head);
 
