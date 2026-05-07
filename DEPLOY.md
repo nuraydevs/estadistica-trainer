@@ -22,7 +22,7 @@ Las tres deben terminar sin errores. Crean:
 ## 1. Crea tu usuario admin
 
 ```bash
-node scripts/create-admin.mjs replika.agency@gmail.com 'TU_PASSWORD' "Oliver García" "estadistica"
+node scripts/create-admin.mjs contacto.nuray@gmail.com 'TU_PASSWORD' "Oliver García" "estadistica"
 ```
 
 Después podrás entrar a `http://localhost:5173` con esas credenciales.

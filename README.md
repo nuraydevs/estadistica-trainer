@@ -106,7 +106,7 @@ Ejecuta una sola vez después de aplicar la migración SQL:
 
 ```bash
 # desde la raíz del repo
-node scripts/create-admin.mjs replika.agency@gmail.com 'tu-password' "Oliver García"
+node scripts/create-admin.mjs contacto.nuray@gmail.com 'tu-password' "Oliver García"
 ```
 
 El script:

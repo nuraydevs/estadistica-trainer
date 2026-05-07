@@ -24,7 +24,7 @@ export function render(container, { onLoggedIn }) {
     </form>
     <div class="login-help">
       ¿No tienes cuenta? Las cuentas las crean los administradores.
-      Escríbenos a <a href="mailto:replika.agency@gmail.com">replika.agency@gmail.com</a>.
+      Escríbenos a <a href="mailto:contacto.nuray@gmail.com">contacto.nuray@gmail.com</a>.
     </div>
   `;
   screen.appendChild(card);
