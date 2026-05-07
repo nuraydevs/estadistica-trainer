@@ -5,6 +5,9 @@ import { mountProgressCard } from '../components/ProgressCard.js';
 import { updateProfile, getProfile } from '../lib/learning-profile.js';
 import { mountExamMode } from '../components/ExamMode.js';
 import { getSubjectExamMeta, daysUntilExam, shouldActivatePanic } from '../lib/exam-mode.js';
+import { mountSocialPresence } from '../components/SocialPresence.js';
+import { mountCommunityInsights } from '../components/CommunityInsights.js';
+import { startPresenceLoop } from '../lib/presence.js';
 
 export async function render(container, { subject, profile, onBack }) {
   container.innerHTML = '';
@@ -82,6 +85,38 @@ export async function render(container, { subject, profile, onBack }) {
     .then((pc) => { progressCard = pc; })
     .catch((err) => console.warn('[SubjectView] ProgressCard fallo', err));
 
+  // Presencia + comunidad
+  const socialHost = document.createElement('div');
+  socialHost.className = 'social-host';
+  container.appendChild(socialHost);
+  const socialPresence = mountSocialPresence(socialHost, {
+    userId,
+    subject,
+    currentSectionGetter: () => {
+      try { return instance?.getCurrentContext?.() || ''; }
+      catch { return ''; }
+    }
+  });
+
+  const insightsHost = document.createElement('div');
+  insightsHost.className = 'community-host';
+  container.appendChild(insightsHost);
+  let communityInsights = null;
+  mountCommunityInsights(insightsHost, { subjectSlug: subject.slug })
+    .then((ci) => { communityInsights = ci; })
+    .catch(() => {});
+
+  // Presence loop (heartbeat 30s)
+  const presenceTracker = startPresenceLoop({
+    userId,
+    subjectSlug: subject.slug,
+    getSection: () => {
+      try { return instance?.getCurrentContext?.() || ''; }
+      catch { return ''; }
+    },
+    isVisible: profile?.show_online_status !== false
+  });
+
   let examOverlay = null;
   exBar.querySelector('[data-action="exam"]').addEventListener('click', async () => {
     if (examOverlay) return;
@@ -157,9 +192,12 @@ export async function render(container, { subject, profile, onBack }) {
       document.removeEventListener('estadistica-exercise-result', onExerciseResult);
       debouncedSave.flush?.();
       try { sessionTracker?.stop?.(); } catch {}
+      try { presenceTracker?.stop?.(); } catch {}
       try { tutor?.unmount?.(); } catch {}
       try { examOverlay?.unmount?.(); } catch {}
       try { progressCard?.unmount?.(); } catch {}
+      try { socialPresence?.unmount?.(); } catch {}
+      try { communityInsights?.unmount?.(); } catch {}
       try { instance?.unmount?.(); } catch {}
       container.innerHTML = '';
     }

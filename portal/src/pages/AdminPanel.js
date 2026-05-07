@@ -3,12 +3,14 @@ import { render as renderAlerts, getPendingAlertsCount } from './admin/AlertsTab
 import { render as renderTutorMetrics } from './admin/TutorMetrics.js';
 import { render as renderPayments } from './admin/PaymentsTab.js';
 import { render as renderSubjects } from './admin/SubjectsTab.js';
+import { render as renderCommunity } from './admin/CommunityTab.js';
 
 const TABS = [
   { id: 'students', label: 'Alumnos' },
   { id: 'alerts', label: 'Alertas' },
   { id: 'tutor', label: 'Tutor IA' },
   { id: 'subjects', label: 'Asignaturas' },
+  { id: 'community', label: 'Comunidad' },
   { id: 'payments', label: 'Pagos' }
 ];
 
@@ -66,6 +68,7 @@ export async function render(container, { profile } = {}) {
       refreshBadge();
     } else if (activeTabId === 'tutor') await renderTutorMetrics(content);
     else if (activeTabId === 'subjects') await renderSubjects(content);
+    else if (activeTabId === 'community') await renderCommunity(content);
     else if (activeTabId === 'payments') await renderPayments(content);
   }
 

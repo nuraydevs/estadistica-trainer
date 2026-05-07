@@ -1,5 +1,6 @@
 import { SUBJECTS } from '../lib/subjects.js';
 import { render as renderSubjectCard } from '../components/SubjectCard.js';
+import { renderRanking } from '../components/Ranking.js';
 
 export function render(container, { profile, unlockedSlugs, onOpenSubject }) {
   container.innerHTML = '';
@@ -9,21 +10,42 @@ export function render(container, { profile, unlockedSlugs, onOpenSubject }) {
   const greeting = profile?.full_name?.trim() || profile?.email || 'estudiante';
   wrap.innerHTML = `
     <h1>Hola, ${greeting}</h1>
-    <p class="subtitle">Elige una asignatura para empezar.</p>
-    <div class="hub-grid"></div>
+    <nav class="hub-tabs">
+      <button class="hub-tab hub-tab--active" data-tab="subjects">Asignaturas</button>
+      <button class="hub-tab" data-tab="community">Comunidad</button>
+    </nav>
+    <div id="hub-content"></div>
   `;
-
-  const grid = wrap.querySelector('.hub-grid');
-  const unlockedSet = new Set(unlockedSlugs);
-  SUBJECTS.forEach((subject) => {
-    grid.appendChild(
-      renderSubjectCard({
-        subject,
-        unlocked: unlockedSet.has(subject.slug),
-        onOpen: onOpenSubject
-      })
-    );
-  });
-
   container.appendChild(wrap);
+
+  const tabs = wrap.querySelectorAll('.hub-tab');
+  const content = wrap.querySelector('#hub-content');
+  let active = 'subjects';
+
+  function renderActive() {
+    content.innerHTML = '';
+    if (active === 'subjects') {
+      const grid = document.createElement('div');
+      grid.className = 'hub-grid';
+      const unlockedSet = new Set(unlockedSlugs);
+      SUBJECTS.forEach((subject) => {
+        grid.appendChild(renderSubjectCard({
+          subject,
+          unlocked: unlockedSet.has(subject.slug),
+          onOpen: onOpenSubject
+        }));
+      });
+      content.appendChild(grid);
+    } else if (active === 'community') {
+      renderRanking(content, { currentUserId: profile?.id });
+    }
+  }
+
+  tabs.forEach((b) => b.addEventListener('click', () => {
+    active = b.dataset.tab;
+    tabs.forEach((x) => x.classList.toggle('hub-tab--active', x === b));
+    renderActive();
+  }));
+
+  renderActive();
 }

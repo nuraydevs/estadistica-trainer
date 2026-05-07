@@ -1,7 +1,7 @@
 import './styles/main.css';
 import { loadState, hydrateState } from './utils/storage.js';
 import { EXAM_DATES, formatCountdown, daysUntil, startCountdownTicker } from './utils/countdown.js';
-import { getBlockById } from './data/index.js';
+import { getBlockById, ALL_EJERCICIOS } from './data/index.js';
 import { render as renderTabs } from './components/Tabs.js';
 import { render as renderDashboard } from './components/Dashboard.js';
 import { render as renderBlockView } from './components/BlockView.js';
@@ -140,16 +140,9 @@ export function mount(container, ctx = {}) {
   rerender();
   const tickerId = startCountdownTicker(tickCountdown, 60000);
 
-  async function getExamQuestions(type, profile) {
+  function getExamQuestions(type, profile) {
     // Sample de los ejercicios del temario según tipo de examen
-    const all = await import('./data/index.js');
-    const pool = [
-      ...(all.tema1Ejercicios || all.default?.tema1Ejercicios || []),
-      ...(all.tema2Ejercicios || []),
-      ...(all.tema3Ejercicios || []),
-      ...(all.tema4Ejercicios || []),
-      ...(all.tema5Ejercicios || [])
-    ].filter((e) => e?.statement);
+    const pool = (ALL_EJERCICIOS || []).filter((e) => e?.statement);
 
     let questions = [];
     if (type === 'completo') {

@@ -5,6 +5,8 @@ import { render as renderHub } from './pages/Hub.js';
 import { render as renderSubject } from './pages/SubjectView.js';
 import { render as renderAdmin } from './pages/AdminPanel.js';
 import { render as renderHeader } from './components/Header.js';
+import { fetchUserProfile } from './lib/presence.js';
+import { openProfileSetup } from './components/ProfileSetup.js';
 
 const root = document.getElementById('portal-root');
 
@@ -69,6 +71,15 @@ async function loadUserContext() {
     state.profile = profile;
   }
   state.unlockedSlugs = subjects.map((s) => s.subject_slug);
+
+  // Si el usuario no tiene perfil público aún, sugerimos personalización (no bloquea)
+  try {
+    const social = await fetchUserProfile(userId);
+    if (!social) {
+      openProfileSetup({ userId, fullName: state.profile.full_name, email: state.profile.email })
+        .catch(() => {});
+    }
+  } catch {}
 }
 
 async function rerender() {
