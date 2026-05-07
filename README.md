@@ -1,123 +1,129 @@
-# Estadística Trainer
+# Portal Universitario — Remontada Curso
 
-Entrenador interactivo en el navegador para preparar el examen de **Estadística** del Grado en Ingeniería Electrónica Industrial (UAL). Pensado para repasar partiendo casi de cero, en sesiones cortas, con foco en los bloques que más caen.
+Plataforma de estudio que engloba 5 asignaturas. Vainilla JS + Vite + Supabase.
 
-- Examen ordinaria: **17 jun 2026**
-- Examen extraordinaria: **3 jul 2026**
-- Profesores: Ana D. Maldonado, Rafael Cabañas (Dpto. Matemáticas)
+## Estructura
 
-## Captura
+```
+.
+├── portal/                       Aplicación principal (login, hub, admin, tutor)
+│   ├── package.json
+│   ├── vite.config.js            con plugin que sirve /api/* en dev
+│   ├── vercel.json               includeFiles para .temario/
+│   ├── index.html
+│   ├── .env.local                claves Supabase + Gemini (gitignored)
+│   ├── .env.example
+│   ├── api/
+│   │   ├── tutor.js              serverless: auth + Gemini + rate limit
+│   │   └── _lib/
+│   │       ├── gemini-files.js   upload/cache de PDFs a Gemini Files API
+│   │       └── prompts.js        system prompts por asignatura
+│   ├── scripts/sync-temario.mjs  copia PDFs a .temario/ (predev/prebuild)
+│   ├── .temario/                 PDFs sincronizados (gitignored)
+│   └── src/
+│       ├── main.js               orquestador (router básico)
+│       ├── lib/                  supabase, auth, progress, subjects, gemini
+│       ├── pages/                Login, Hub, SubjectView, AdminPanel
+│       ├── components/           Header, SubjectCard, Tutor
+│       └── styles/main.css       paleta dark heredada de Estadística
+│
+├── apps/
+│   ├── estadistica/              ✅ construida (con getCurrentContext)
+│   │   └── Temario UAL/          PDFs originales (origen del .temario)
+│   ├── fisica/                   ⏳ pendiente
+│   ├── tecnologia/               ⏳ pendiente
+│   ├── programacion-c/           ⏳ pendiente
+│   └── matematicas/              ⏳ pendiente
+│
+├── supabase/migrations/
+│   ├── 0001_init_portal.sql      tablas core + RLS
+│   └── 0002_tutor.sql            tablas del tutor (conversations, usage, files)
+│
+└── scripts/
+    └── create-admin.mjs          crea/promueve usuario admin (service_role)
+```
 
-> _(Pendiente de añadir.)_
+## Asignaturas
 
-## Arrancar en local
+| Slug             | Estado          | Notas                                         |
+| ---------------- | --------------- | --------------------------------------------- |
+| `estadistica`    | ✅ construida    | Movida a `apps/estadistica/`, expone `mount()` |
+| `fisica`         | ⏳ esqueleto     | Carpeta vacía + README                        |
+| `tecnologia`     | ⏳ esqueleto     | Carpeta vacía + README                        |
+| `programacion-c` | ⏳ esqueleto     | Carpeta vacía + README                        |
+| `matematicas`    | ⏳ esqueleto     | Carpeta vacía + README                        |
 
-Requiere [Node.js](https://nodejs.org) 18 o superior.
+Para activar una asignatura nueva, expón un módulo `apps/<slug>/src/main.js` con
+`export function mount(container, ctx)` y cambia el flag `available` y el
+`loader` en [`portal/src/lib/subjects.js`](portal/src/lib/subjects.js).
+
+## Esquema de base de datos (Supabase)
+
+**0001 — core**
+- `public.users` — espejo de `auth.users` con `is_admin`, `active`, `full_name`
+- `public.user_subjects` — qué asignaturas tiene cada usuario
+- `public.progress` — JSONB con el estado por usuario y asignatura
+- Trigger `on_auth_user_created` espeja altas de auth en `public.users`
+- RLS activa en las tres tablas (cada usuario solo ve lo suyo, admins ven todo)
+
+**0002 — tutor Gemini**
+- `public.tutor_conversations` — historial por (usuario, asignatura)
+- `public.tutor_usage` — contador diario para rate limit (50/día)
+- `public.tutor_files` — cache de los `file_uri` que devuelve Gemini File API
+
+Ver
+[`supabase/migrations/0001_init_portal.sql`](supabase/migrations/0001_init_portal.sql)
+y
+[`supabase/migrations/0002_tutor.sql`](supabase/migrations/0002_tutor.sql).
+
+## Cómo arrancar en local
 
 ```bash
+# 1) instalar dependencias del portal
+cd portal
 npm install
+
+# 2) variables de entorno (ya hay .env.local con tus claves)
+#    si las quieres regenerar:
+cp .env.example .env.local
+# y rellena:
+#   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY      (cliente)
+#   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY        (server)
+#   GEMINI_API_KEY  (o GOOGLE_AI_API_KEY)          (server, tutor)
+
+# 3) dev server (incluye plugin que sirve /api/tutor en local)
 npm run dev
+# → http://localhost:5173
 ```
 
-Abre [http://localhost:5173](http://localhost:5173) en el navegador.
+> El predev script copia los PDFs de `apps/<slug>/Temario UAL/` a
+> `portal/.temario/<slug>/` para que la función serverless los encuentre con
+> el mismo path en local y en Vercel.
 
-Para construir la versión de producción:
+## Crear el primer admin (tú)
+
+Ejecuta una sola vez después de aplicar la migración SQL:
 
 ```bash
-npm run build
-npm run preview
+# desde la raíz del repo
+node scripts/create-admin.mjs replika.agency@gmail.com 'tu-password' "Oliver García"
 ```
 
-## Cómo está organizado
+El script:
+1. Crea el usuario en `auth.users` (o lo recupera si ya existe).
+2. Lo marca como `is_admin = true` en `public.users`.
+3. Le desbloquea `estadistica` por defecto (puedes pasar más slugs como 4º arg
+   separados por coma, ej. `"estadistica,fisica"`).
 
-```
-src/
-├── main.js               # punto de entrada, gestión de tabs y vistas
-├── styles/main.css       # tema dark y todos los estilos
-├── data/
-│   ├── index.js          # exporta el array BLOCKS
-│   └── tema2-bayes.js    # un archivo por bloque
-├── components/           # cada componente exporta `render(container, props)`
-└── utils/
-    ├── storage.js        # persistencia en localStorage
-    └── countdown.js      # cuenta atrás al examen
-```
+## Aplicar la migración SQL
 
-El estado de cada ejercicio (resuelto, fallado, pistas usadas, intentos) se guarda en `localStorage` bajo la clave `estadistica-trainer-v1`.
+Mi MCP no tiene permisos sobre el proyecto Supabase `lfyymspgcayhxehjmala`, así
+que tienes que aplicar la migración manualmente:
 
-## Cómo añadir un bloque nuevo
+1. Abre <https://supabase.com/dashboard/project/lfyymspgcayhxehjmala/sql/new>
+2. Pega el contenido de `supabase/migrations/0001_init_portal.sql`
+3. Ejecuta. Debe terminar sin errores.
 
-1. **Crea un archivo** en `src/data/`, por ejemplo `tema4-binomial.js`.
-2. **Exporta un objeto** con la forma estándar:
+## Despliegue en Vercel
 
-```js
-export const binomialBlock = {
-  id: 'binomial',
-  tema: 4,
-  title: 'Bloque 2 · Distribución Binomial',
-  priority: 'priority',          // 'priority' | 'high' | 'medium'
-  priorityLabel: 'Cae siempre',
-  why: 'Una pregunta típica del Tema 4...',
-  theory: {
-    keyFormulas: [
-      { label: 'P(X=k)', latex: 'C(n,k)·p^k·(1-p)^(n-k)', note: '' }
-    ],
-    identify: [
-      { signal: 'n ensayos independientes con dos resultados', type: '→ Binomial' }
-    ],
-    template: [
-      'Identifica n y p',
-      'Aplica la fórmula o usa la tabla'
-    ],
-    complete: '<p>Teoría académica completa en HTML.</p>'
-  },
-  exercises: [
-    {
-      id: 'b2-e1',
-      statement: 'Enunciado del ejercicio.',
-      sourceNote: 'Ejercicio X del PDF Y',
-      types: ['Binomial', 'Poisson', 'Normal', 'Hipergeométrica'],
-      correctType: 0,
-      typeExplanation: 'Por qué es Binomial.',
-      hints: ['Pista 1', 'Pista 2', 'Pista 3'],
-      answer: 0.32,
-      tolerance: 0.005,
-      textAnswer: null,
-      solution: ['<strong>Paso 1:</strong> ...', '<strong>Paso 2:</strong> ...']
-    }
-  ]
-};
-```
-
-3. **Regístralo** en `src/data/index.js`:
-
-```js
-import { bayesBlock } from './tema2-bayes.js';
-import { binomialBlock } from './tema4-binomial.js'; // 👈 añade
-
-export const BLOCKS = [
-  bayesBlock,
-  binomialBlock // 👈 añade
-];
-```
-
-Recarga la app y el bloque aparece automáticamente en la pestaña del tema correspondiente.
-
-### Tips para los datos
-
-- **`correctType`** es el índice (0, 1, 2, 3) dentro del array `types`.
-- **`answer`** es numérica. Si el ejercicio es de razonamiento, ponla a `null` y rellena `textAnswer` con la explicación esperada.
-- **`tolerance`** funciona como `Math.abs(respuesta - answer) <= tolerance`. Para 4 decimales suele bastar `0.001`.
-- **`hints`** se desbloquean en orden, una a una.
-- **`solution`** acepta HTML inline (puedes usar `<strong>`, `<em>`, fracciones con `<sup>`/`<sub>`).
-
-## Stack
-
-- [Vite](https://vitejs.dev) 5
-- JavaScript vainilla (sin frameworks)
-- CSS propio (tema dark inspirado en Linear / Vercel)
-- Persistencia con `localStorage`
-
-## Licencia
-
-MIT.
+Ver [`DEPLOY.md`](DEPLOY.md).

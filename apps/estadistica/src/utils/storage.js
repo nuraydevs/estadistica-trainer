@@ -20,9 +20,20 @@ export function loadState() {
   }
 }
 
+export const STATE_CHANGED_EVENT = 'estadistica-state-changed';
+
 export function saveState(state) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+  try {
+    document.dispatchEvent(new CustomEvent(STATE_CHANGED_EVENT, { detail: state }));
+  } catch {}
+}
+
+export function hydrateState(nextState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
   } catch {}
 }
 

@@ -1,0 +1,20 @@
+{
+  "name": "portal-universitario",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/sync-temario.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-temario.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sync-temario": "node scripts/sync-temario.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

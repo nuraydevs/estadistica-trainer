@@ -35,3 +35,6 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 .vercel
+
+# Sincronización de PDFs del temario (regenerada por scripts/sync-temario.mjs)
+portal/.temario/
