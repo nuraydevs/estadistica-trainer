@@ -32,13 +32,17 @@ async function populate(body, user, onChange) {
     { data: payments },
     { data: sessions },
     { data: alerts },
-    { data: tutorUsage }
+    { data: tutorUsage },
+    { data: profiles },
+    { data: attempts }
   ] = await Promise.all([
     supabase.from('user_subjects').select('subject_slug, granted_at, granted_by').eq('user_id', user.id),
     supabase.from('payments').select('id, amount, currency, payment_method, subject_slug, notes, created_at, registered_by').eq('user_id', user.id).order('created_at', { ascending: false }),
     supabase.from('sessions').select('ip_address, user_agent, subject_slug, started_at, last_seen_at, is_active').eq('user_id', user.id).order('started_at', { ascending: false }).limit(10),
     supabase.from('session_alerts').select('id, alert_type, details, created_at, reviewed').eq('user_id', user.id).order('created_at', { ascending: false }),
-    supabase.from('tutor_usage').select('subject_slug, questions_count, date').eq('user_id', user.id).gte('date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
+    supabase.from('tutor_usage').select('subject_slug, questions_count, date').eq('user_id', user.id).gte('date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)),
+    supabase.from('learning_profile').select('subject_slug, concepts_mastered, concepts_weak, concepts_broken, total_exercises_done, total_exercises_failed, streak_days, last_study_date').eq('user_id', user.id),
+    supabase.from('exercise_attempts').select('attempted_at, result').eq('user_id', user.id).gte('attempted_at', new Date(Date.now() - 14 * 86400000).toISOString())
   ]);
 
   const subjectsHtml = (subjectGrants || []).length
@@ -114,8 +118,54 @@ async function populate(body, user, onChange) {
     `;
   }).join('');
 
+  // ── Perfil de aprendizaje ──
+  const learningHtml = (profiles || []).length
+    ? '<div class="detail-grid">' + (profiles || []).map((p) => {
+        const total = p.total_exercises_done || 0;
+        const failed = p.total_exercises_failed || 0;
+        const sr = total ? Math.round(((total - failed) / total) * 100) : 0;
+        const broken = (p.concepts_broken || []);
+        const mastered = (p.concepts_mastered || []);
+        return `
+          <div class="detail-section">
+            <h3>${slugToName(p.subject_slug)}</h3>
+            <div class="detail-list">
+              <li><strong>🔥 ${p.streak_days || 0}</strong> días de racha</li>
+              <li><strong>${total}</strong> ejercicios · <strong>${sr}%</strong> acierto</li>
+              <li><span class="dim">Última sesión:</span> ${formatDate(p.last_study_date)}</li>
+              ${broken.length ? `<li><span style="color: var(--danger);">Conceptos rotos:</span> ${broken.map(escapeHtml).join(', ')}</li>` : ''}
+              ${mastered.length ? `<li><span style="color: var(--success);">Dominados:</span> ${mastered.map(escapeHtml).join(', ')}</li>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('') + '</div>'
+    : '<p class="muted">Aún sin actividad de aprendizaje.</p>';
+
+  // Heatmap de últimas 2 semanas
+  const heatDays = [];
+  const byDay = new Map();
+  (attempts || []).forEach((a) => {
+    const d = a.attempted_at.slice(0, 10);
+    byDay.set(d, (byDay.get(d) || 0) + 1);
+  });
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    heatDays.push({ key, count: byDay.get(key) || 0 });
+  }
+  const heatHtml = '<div class="heatmap">' + heatDays.map((d) => {
+    const intensity = d.count === 0 ? 0 : d.count <= 2 ? 1 : d.count <= 5 ? 2 : 3;
+    return `<div class="heat-cell heat-cell--${intensity}" title="${d.key}: ${d.count}"></div>`;
+  }).join('') + '</div>';
+
   body.innerHTML = `
     <div class="detail-grid">
+      <div class="detail-section detail-section--span2">
+        <h3>Perfil de aprendizaje</h3>
+        ${learningHtml}
+        <h4 style="margin-top: var(--space-3);">Actividad últimas 2 semanas</h4>
+        ${heatHtml}
+      </div>
       <div class="detail-section">
         <h3>Asignaturas</h3>
         ${subjectsHtml}

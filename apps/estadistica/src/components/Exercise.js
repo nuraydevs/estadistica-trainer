@@ -1,8 +1,34 @@
 import { getExerciseStatus, setExerciseStatus, resetExercise } from '../utils/storage.js';
 
+const RESULT_EVENT = 'estadistica-exercise-result';
+const startTimes = new Map(); // id -> timestamp
+
+function dispatchResult(exercise, status, result) {
+  try {
+    const concept = exercise.types?.[exercise.correctType] || exercise.concept || 'general';
+    const startedAt = startTimes.get(exercise.id);
+    const elapsed = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0;
+    document.dispatchEvent(new CustomEvent(RESULT_EVENT, {
+      detail: {
+        exercise_id: exercise.id,
+        concept,
+        result,
+        hints_used: status.hintsUsed || 0,
+        time_spent_seconds: elapsed
+      }
+    }));
+    startTimes.delete(exercise.id);
+  } catch {}
+}
+
 export function render(container, { exercise, index, state, onChange }) {
   container.innerHTML = '';
   const status = getExerciseStatus(state, exercise.id);
+
+  // Si el ejercicio está pendiente y no tenemos start time, inícialo
+  if (status.status === 'pending' && !startTimes.has(exercise.id)) {
+    startTimes.set(exercise.id, Date.now());
+  }
 
   const card = document.createElement('article');
   card.className = 'exercise';
@@ -169,10 +195,9 @@ function buildNumericAnswer(exercise, state, status, onChange) {
     if (Number.isNaN(val)) return;
     const attempts = [...status.answerAttempts, val];
     if (Math.abs(val - exercise.answer) <= exercise.tolerance) {
-      setExerciseStatus(state, exercise.id, {
-        answerAttempts: attempts,
-        status: 'done'
-      });
+      const next = { ...status, answerAttempts: attempts, status: 'done' };
+      setExerciseStatus(state, exercise.id, { answerAttempts: attempts, status: 'done' });
+      dispatchResult(exercise, next, 'correct');
     } else {
       setExerciseStatus(state, exercise.id, { answerAttempts: attempts });
     }
@@ -207,6 +232,7 @@ function buildTextAnswer(exercise, state, onChange) {
   btn.textContent = 'Lo tengo';
   btn.addEventListener('click', () => {
     setExerciseStatus(state, exercise.id, { status: 'done' });
+    dispatchResult(exercise, status, 'correct');
     onChange();
   });
   wrap.appendChild(btn);
@@ -254,10 +280,12 @@ function buildShowSolutionRow(exercise, state, onChange) {
   btn.className = 'btn btn--danger-ghost';
   btn.textContent = 'Ver solución';
   btn.addEventListener('click', () => {
+    const status = getExerciseStatus(state, exercise.id);
     setExerciseStatus(state, exercise.id, {
       status: 'failed',
       solutionShown: true
     });
+    dispatchResult(exercise, status, 'gave_up');
     onChange();
   });
   row.appendChild(btn);

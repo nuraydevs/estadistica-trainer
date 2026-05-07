@@ -139,9 +139,23 @@ export default async function handler(req, res) {
     console.error('[tutor] getSubjectFiles error', err);
   }
 
-  // System prompt + análisis del historial
+  // Carga learning_profile (memoria persistente del alumno)
+  let profile = null;
+  try {
+    const { data } = await supabase
+      .from('learning_profile')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('subject_slug', subject)
+      .maybeSingle();
+    profile = data || null;
+  } catch (err) {
+    console.warn('[tutor] no se pudo cargar profile', err);
+  }
+
+  // System prompt + análisis del historial + perfil persistente
   const insights = analyzeHistory(history, subject);
-  const systemPrompt = buildSystemPrompt({ subjectSlug: subject, context, history });
+  const systemPrompt = buildSystemPrompt({ subjectSlug: subject, context, history, profile });
 
   // Contenido para Gemini
   const contents = [];

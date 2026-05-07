@@ -1,4 +1,5 @@
 import { askTutor, fetchConversation, clearConversation, fetchTodayUsage } from '../lib/gemini.js';
+import { getProfile, getBrokenConcepts, getWeakConcepts, successRate } from '../lib/learning-profile.js';
 
 const DAILY_LIMIT_DEFAULT = 50;
 
@@ -9,9 +10,10 @@ const DAILY_LIMIT_DEFAULT = 50;
  * @param {object} options
  *   subject: { slug, name }
  *   isAdmin: boolean
- *   getContext: () => string  (devuelve la sección/tema activo)
+ *   userId: string
+ *   getContext: () => string
  */
-export function mountTutor(container, { subject, isAdmin = false, getContext }) {
+export function mountTutor(container, { subject, isAdmin = false, userId = null, getContext }) {
   const state = {
     open: false,
     sending: false,
@@ -44,15 +46,36 @@ export function mountTutor(container, { subject, isAdmin = false, getContext }) 
     else closePanel();
   });
 
-  // Carga inicial del historial y uso (no bloquea la UI)
+  // Carga inicial del historial, uso y perfil → genera mensaje de apertura
   Promise.all([
     fetchConversation(subject.slug).catch(() => []),
-    fetchTodayUsage(subject.slug).catch(() => ({ questionsToday: 0 }))
-  ]).then(([msgs, usage]) => {
+    fetchTodayUsage(subject.slug).catch(() => ({ questionsToday: 0 })),
+    userId ? getProfile(userId, subject.slug).catch(() => null) : Promise.resolve(null)
+  ]).then(([msgs, usage, profile]) => {
     state.messages = msgs.map((m) => ({ role: m.role, content: m.content }));
     state.questionsToday = usage.questionsToday;
+    // Si no hay historial previo, inyectamos un saludo de apertura inteligente
+    if (!state.messages.length && profile) {
+      const greeting = buildOpeningMessage(profile);
+      if (greeting) state.messages.push({ role: 'model', content: greeting });
+    }
     if (state.open) renderPanel();
   });
+
+  // Trigger desde ProgressCard "Practicar este concepto"
+  const onOpenWithContext = (e) => {
+    const concept = e.detail?.concept;
+    if (!concept) return;
+    state.open = true;
+    openPanel();
+    const ta = panel.querySelector('textarea');
+    if (ta) {
+      ta.value = `Quiero repasar "${concept}". Empieza preguntándome qué tipo de ejercicio es.`;
+      ta.dispatchEvent(new Event('input'));
+      ta.focus();
+    }
+  };
+  document.addEventListener('open-tutor-with-context', onOpenWithContext);
 
   function openPanel() {
     panel.hidden = false;
@@ -211,9 +234,37 @@ export function mountTutor(container, { subject, isAdmin = false, getContext }) 
       if (typeof fn === 'function') state.getContext = fn;
     },
     unmount() {
+      document.removeEventListener('open-tutor-with-context', onOpenWithContext);
       try { root.remove(); } catch {}
     }
   };
+}
+
+function buildOpeningMessage(profile) {
+  if (!profile) return null;
+  const broken = getBrokenConcepts(profile);
+  const weak = getWeakConcepts(profile, 1);
+  const sr = successRate(profile);
+  const last = profile.last_study_date ? new Date(profile.last_study_date) : null;
+  const daysSince = last ? Math.floor((Date.now() - last.getTime()) / 86400000) : null;
+
+  if (daysSince !== null && daysSince >= 3) {
+    const target = broken[0] || weak[0];
+    if (target) {
+      return `Bienvenido de vuelta. Llevas ${daysSince} días sin entrar. Te propongo empezar con un repaso rápido de ${target} antes de seguir. ¿Arrancamos?`;
+    }
+    return `Bienvenido de vuelta. Llevas ${daysSince} días sin entrar. ¿Por dónde quieres retomar?`;
+  }
+  if (broken.length) {
+    return `Recuerdo que ${broken[0]} te está costando. ¿Quieres que empecemos por ahí hoy?`;
+  }
+  if ((profile.streak_days || 0) >= 5) {
+    return `Llevas ${profile.streak_days} días seguidos. Buen ritmo. Hoy te propongo un mini-simulacro para ver cómo vas. ¿Vamos?`;
+  }
+  if (sr !== null && sr > 80) {
+    return `Tu tasa de acierto va en ${sr}%. Te puedo proponer ejercicios más difíciles si quieres subir el nivel.`;
+  }
+  return '¿Por dónde seguimos hoy?';
 }
 
 // ── helpers ──────────────────────────────────────────────────

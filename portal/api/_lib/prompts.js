@@ -182,7 +182,43 @@ function buildInsightsBlock(insights) {
   return lines.join('\n');
 }
 
-export function buildSystemPrompt({ subjectSlug, context, history }) {
+function buildLongTermBlock(profile) {
+  if (!profile) return '';
+  const lines = [];
+  const total = profile.total_exercises_done || 0;
+  const failed = profile.total_exercises_failed || 0;
+  const successRate = total ? Math.round(((total - failed) / total) * 100) : null;
+  const mastered = profile.concepts_mastered || [];
+  const weak = (profile.concepts_weak || []).map((w) => w.concept || w);
+  const broken = profile.concepts_broken || [];
+
+  lines.push('PERFIL DE ESTE ALUMNO (memoria persistente):');
+  if (profile.streak_days >= 1) lines.push(`- Lleva ${profile.streak_days} día${profile.streak_days === 1 ? '' : 's'} estudiando seguidos.`);
+  lines.push(`- Conceptos que domina: ${mastered.length ? mastered.join(', ') : 'aún pocos'}.`);
+  lines.push(`- Conceptos frágiles (falla a veces): ${weak.length ? weak.join(', ') : 'ninguno aún'}.`);
+  lines.push(`- Conceptos rotos (falla siempre): ${broken.length ? broken.join(', ') : 'ninguno'}.`);
+  if (total > 0) {
+    lines.push(`- Ha resuelto ${total} ejercicios. Tasa de éxito: ${successRate}%.`);
+  }
+
+  lines.push('');
+  lines.push('INSTRUCCIONES BASADAS EN EL PERFIL:');
+  lines.push('- Si pregunta sobre un concepto ROTO: empieza con "Sé que esto te cuesta. Vamos muy despacio, paso a paso."');
+  lines.push('- Si pregunta sobre un concepto DOMINADO: responde más rápido, menos detalle, sube el nivel.');
+  if (profile.last_study_date) {
+    const daysSince = Math.floor((Date.now() - new Date(profile.last_study_date).getTime()) / 86400000);
+    if (daysSince > 3) {
+      lines.push(`- Lleva ${daysSince} días sin estudiar: menciona brevemente que es bueno retomar.`);
+    }
+  }
+  if (successRate !== null) {
+    if (successRate < 40) lines.push('- Tasa de éxito <40%: prioriza ejercicios básicos, no avances a temas nuevos.');
+    else if (successRate > 80) lines.push('- Tasa de éxito >80%: propón retos más difíciles.');
+  }
+  return lines.join('\n');
+}
+
+export function buildSystemPrompt({ subjectSlug, context, history, profile = null }) {
   const meta = getSubjectMeta(subjectSlug);
   const subjectName = meta.name;
   const professorClause = meta.professor && meta.professor.trim()
@@ -197,6 +233,7 @@ export function buildSystemPrompt({ subjectSlug, context, history }) {
     : `\n\nContexto actual del estudiante: está en ${subjectName} (sección no especificada).`;
 
   const sessionBlock = `\n\nMEMORIA DE ESTA SESIÓN:\n${insightsBlock}`;
+  const longTermBlock = profile ? `\n\n${buildLongTermBlock(profile)}` : '';
 
-  return BASE_PROMPT({ subjectName, professorClause }) + ctxLine + sessionBlock;
+  return BASE_PROMPT({ subjectName, professorClause }) + ctxLine + sessionBlock + longTermBlock;
 }

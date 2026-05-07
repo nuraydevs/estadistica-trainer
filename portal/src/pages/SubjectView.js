@@ -1,6 +1,8 @@
 import { fetchProgress, saveProgress, debounce } from '../lib/progress.js';
 import { startSessionTracking } from '../lib/session-ping.js';
 import { mountTutor } from '../components/Tutor.js';
+import { mountProgressCard } from '../components/ProgressCard.js';
+import { updateProfile } from '../lib/learning-profile.js';
 
 export async function render(container, { subject, profile, onBack }) {
   container.innerHTML = '';
@@ -50,8 +52,19 @@ export async function render(container, { subject, profile, onBack }) {
     return { unmount() {} };
   }
 
-  // Limpiamos loading y montamos contenedor del sub-app
+  // Limpiamos loading y montamos: ProgressCard arriba + sub-app debajo
   container.innerHTML = '';
+
+  // Wrapper con max-width igual al de la sub-app (#app: 860px)
+  const progressWrap = document.createElement('div');
+  progressWrap.className = 'progress-card-host';
+  container.appendChild(progressWrap);
+
+  let progressCard = null;
+  mountProgressCard(progressWrap, { userId, subject })
+    .then((pc) => { progressCard = pc; })
+    .catch((err) => console.warn('[SubjectView] ProgressCard fallo', err));
+
   const shell = document.createElement('div');
   shell.id = 'app';
   shell.dataset.portalManaged = 'true';
@@ -68,6 +81,16 @@ export async function render(container, { subject, profile, onBack }) {
     if (event?.detail) debouncedSave(event.detail);
   };
   document.addEventListener('estadistica-state-changed', onStateChanged);
+
+  // Resultados de ejercicios → updateProfile en Supabase
+  const onExerciseResult = (event) => {
+    const detail = event?.detail;
+    if (!detail) return;
+    updateProfile(userId, subject.slug, detail)
+      .then(() => progressCard?.refresh?.())
+      .catch((err) => console.warn('[SubjectView] updateProfile error', err));
+  };
+  document.addEventListener('estadistica-exercise-result', onExerciseResult);
 
   let instance = null;
   try {
@@ -88,6 +111,7 @@ export async function render(container, { subject, profile, onBack }) {
     tutor = mountTutor(document.body, {
       subject: { slug: subject.slug, name: subject.name },
       isAdmin: !!profile.is_admin,
+      userId,
       getContext: () => {
         try { return instance?.getCurrentContext?.() || ''; }
         catch { return ''; }
@@ -100,9 +124,11 @@ export async function render(container, { subject, profile, onBack }) {
   return {
     unmount() {
       document.removeEventListener('estadistica-state-changed', onStateChanged);
+      document.removeEventListener('estadistica-exercise-result', onExerciseResult);
       debouncedSave.flush?.();
       try { sessionTracker?.stop?.(); } catch {}
       try { tutor?.unmount?.(); } catch {}
+      try { progressCard?.unmount?.(); } catch {}
       try { instance?.unmount?.(); } catch {}
       container.innerHTML = '';
     }
