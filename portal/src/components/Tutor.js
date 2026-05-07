@@ -1,5 +1,6 @@
 import { askTutor, fetchConversation, clearConversation, fetchTodayUsage } from '../lib/gemini.js';
 import { getProfile, getBrokenConcepts, getWeakConcepts, successRate } from '../lib/learning-profile.js';
+import { renderMath } from '../lib/math-render.js';
 
 const DAILY_LIMIT_DEFAULT = 50;
 
@@ -180,6 +181,9 @@ export function mountTutor(container, { subject, isAdmin = false, userId = null,
       if (!ta.value.trim()) return;
       doSend(ta.value.trim());
     });
+
+    // Render LaTeX en mensajes del tutor (no toca textareas/code)
+    renderMath(list);
 
     // scroll al final
     requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });

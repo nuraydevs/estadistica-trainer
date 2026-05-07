@@ -1,5 +1,6 @@
 import { FORMULAS } from '../data/index.js';
 import { isFormulaMarcada, toggleFormulaMarcada } from '../utils/storage.js';
+import { renderMath, renderFormula } from '@portal/lib/math-render.js';
 
 export function render(container, { state }) {
   container.innerHTML = '';
@@ -107,7 +108,7 @@ export function render(container, { state }) {
               <h3 class="formula-card__name">${formula.name}</h3>
               <button type="button" class="btn btn--ghost">${marked ? '✓ Difícil' : 'Marcar como difícil'}</button>
             </div>
-            <div class="formula-card__latex">${formula.latex}</div>
+            <div class="formula-card__latex">${renderFormula(formula.latex, true)}</div>
             <p class="formula-card__when">${formula.when}</p>
             ${formula.warning ? `<p class="formula-card__warning">${formula.warning}</p>` : ''}
           `;
@@ -153,6 +154,7 @@ export function render(container, { state }) {
   layout.appendChild(sidebar);
   layout.appendChild(main);
   container.appendChild(layout);
+  renderMath(container);
 }
 
 function anchorId(tema, title) {

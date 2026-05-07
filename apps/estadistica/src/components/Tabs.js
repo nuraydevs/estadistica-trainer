@@ -1,5 +1,6 @@
 export const TABS = [
   { id: 'inicio', label: 'Inicio' },
+  { id: 'temario', label: 'Temario' },
   { id: 'temas', label: 'Temas' },
   { id: 'resumenes', label: 'Resúmenes' },
   { id: 'ejercicios', label: 'Ejercicios' },

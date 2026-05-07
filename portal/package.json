@@ -12,7 +12,8 @@
     "sync-temario": "node scripts/sync-temario.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4"
+    "@supabase/supabase-js": "^2.45.4",
+    "katex": "^0.16.45"
   },
   "devDependencies": {
     "vite": "^5.4.10"

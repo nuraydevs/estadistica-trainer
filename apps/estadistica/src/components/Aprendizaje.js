@@ -1,5 +1,6 @@
 import { APRENDIZAJE_BY_TEMA } from '../data/index.js';
 import { isUnidadCompletada, marcarUnidadCompletada } from '../utils/storage.js';
+import { renderMath } from '@portal/lib/math-render.js';
 
 export function render(container, { state, onChange }) {
   container.innerHTML = '';
@@ -162,4 +163,5 @@ export function render(container, { state, onChange }) {
   rerender();
   container.appendChild(tabs);
   container.appendChild(body);
+  renderMath(container);
 }

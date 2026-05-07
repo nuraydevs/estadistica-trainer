@@ -1,4 +1,5 @@
 import { EJERCICIOS_BY_TEMA, RESUELTOS_BY_TEMA } from '../data/index.js';
+import { renderMath } from '@portal/lib/math-render.js';
 
 export function render(container, _ctx) {
   container.innerHTML = '';
@@ -109,6 +110,7 @@ export function render(container, _ctx) {
   container.appendChild(tabs);
   container.appendChild(filters);
   container.appendChild(body);
+  renderMath(container);
 }
 
 function buildStatement(text) {

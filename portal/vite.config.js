@@ -73,7 +73,8 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@apps': path.resolve(repoRoot, 'apps')
+        '@apps': path.resolve(repoRoot, 'apps'),
+        '@portal': path.resolve(__dirname, 'src')
       }
     },
     plugins: [portalApiPlugin()]

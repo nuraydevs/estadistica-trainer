@@ -1,5 +1,6 @@
 import { TEMAS } from '../data/index.js';
 import { marcarSeccionLeida, isSeccionLeida } from '../utils/storage.js';
+import { renderMath } from '@portal/lib/math-render.js';
 
 export function render(container, { state, onChange }) {
   container.innerHTML = '';
@@ -94,4 +95,5 @@ export function render(container, { state, onChange }) {
   layout.appendChild(sidebar);
   layout.appendChild(main);
   container.appendChild(layout);
+  renderMath(container);
 }

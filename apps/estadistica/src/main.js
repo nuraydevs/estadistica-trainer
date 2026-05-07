@@ -5,6 +5,7 @@ import { getBlockById, ALL_EJERCICIOS } from './data/index.js';
 import { render as renderTabs } from './components/Tabs.js';
 import { render as renderDashboard } from './components/Dashboard.js';
 import { render as renderBlockView } from './components/BlockView.js';
+import { render as renderTemario } from './components/TemarioCompleto.js';
 import { render as renderTemas } from './components/Temas.js';
 import { render as renderResumenes } from './components/Resumenes.js';
 import { render as renderEjercicios } from './components/Ejercicios.js';
@@ -82,6 +83,8 @@ export function mount(container, ctx = {}) {
           rerender();
         }
       });
+    } else if (app.view.tab === 'temario') {
+      renderTemario(content, { state: app.state, onChange: rerender });
     } else if (app.view.tab === 'temas') {
       renderTemas(content, { state: app.state, onChange: rerender });
     } else if (app.view.tab === 'resumenes') {

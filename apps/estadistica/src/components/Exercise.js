@@ -1,4 +1,5 @@
 import { getExerciseStatus, setExerciseStatus, resetExercise } from '../utils/storage.js';
+import { renderMath } from '@portal/lib/math-render.js';
 
 const RESULT_EVENT = 'estadistica-exercise-result';
 const startTimes = new Map(); // id -> timestamp
@@ -48,6 +49,7 @@ export function render(container, { exercise, index, state, onChange }) {
   }
 
   container.appendChild(card);
+  renderMath(container);
 }
 
 function buildHeader(exercise, index, status) {
