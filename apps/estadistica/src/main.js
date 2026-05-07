@@ -140,6 +140,62 @@ export function mount(container, ctx = {}) {
   rerender();
   const tickerId = startCountdownTicker(tickCountdown, 60000);
 
+  async function getExamQuestions(type, profile) {
+    // Sample de los ejercicios del temario según tipo de examen
+    const all = await import('./data/index.js');
+    const pool = [
+      ...(all.tema1Ejercicios || all.default?.tema1Ejercicios || []),
+      ...(all.tema2Ejercicios || []),
+      ...(all.tema3Ejercicios || []),
+      ...(all.tema4Ejercicios || []),
+      ...(all.tema5Ejercicios || [])
+    ].filter((e) => e?.statement);
+
+    let questions = [];
+    if (type === 'completo') {
+      questions = sampleByTema(pool, [1, 2, 3, 4, 5], 1).slice(0, 4); // uno por tema, 4-5 total
+      while (questions.length < 4) {
+        const extra = pool[Math.floor(Math.random() * pool.length)];
+        if (extra && !questions.includes(extra)) questions.push(extra);
+      }
+    } else if (type === 'parcial') {
+      // Centrado en conceptos rotos/débiles del perfil; si no hay, los temas más fuertes (2 y 4)
+      const weakConcepts = profile?.concepts_broken?.length
+        ? profile.concepts_broken
+        : (profile?.concepts_weak || []).map((w) => w.concept || w);
+      if (weakConcepts.length) {
+        questions = pool.filter((e) =>
+          weakConcepts.some((c) => (e.type || '').toLowerCase().includes(String(c).toLowerCase()))
+        ).slice(0, 2);
+      }
+      if (questions.length < 2) {
+        questions = sampleByTema(pool, [2, 4], 1).slice(0, 2);
+      }
+    } else if (type === 'panico') {
+      // Temas que más caen: 2 (probabilidad) y 4 (distribuciones)
+      questions = sampleByTema(pool, [2, 4], 1).slice(0, 2);
+    } else {
+      questions = pool.slice(0, 2);
+    }
+
+    return questions.map((q, i) => ({
+      questionId: q.id || `Q${i + 1}`,
+      statement: q.statement,
+      type: q.type || '',
+      maxScore: 2.5
+    }));
+  }
+
+  function sampleByTema(pool, temas, perTema) {
+    const out = [];
+    for (const t of temas) {
+      const filtered = pool.filter((e) => String(e.id || '').startsWith(`t${t}-`));
+      const shuffled = filtered.sort(() => Math.random() - 0.5);
+      out.push(...shuffled.slice(0, perTema));
+    }
+    return out;
+  }
+
   function getCurrentContext() {
     const tabLabels = {
       inicio: 'Inicio',
@@ -166,6 +222,7 @@ export function mount(container, ctx = {}) {
 
   return {
     getCurrentContext,
+    getExamQuestions,
     unmount() {
       document.removeEventListener('open-theory-section', onOpenTheorySection);
       clearInterval(tickerId);

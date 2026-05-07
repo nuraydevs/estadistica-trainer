@@ -2,11 +2,13 @@ import { render as renderStudents } from './admin/StudentsTab.js';
 import { render as renderAlerts, getPendingAlertsCount } from './admin/AlertsTab.js';
 import { render as renderTutorMetrics } from './admin/TutorMetrics.js';
 import { render as renderPayments } from './admin/PaymentsTab.js';
+import { render as renderSubjects } from './admin/SubjectsTab.js';
 
 const TABS = [
   { id: 'students', label: 'Alumnos' },
   { id: 'alerts', label: 'Alertas' },
   { id: 'tutor', label: 'Tutor IA' },
+  { id: 'subjects', label: 'Asignaturas' },
   { id: 'payments', label: 'Pagos' }
 ];
 
@@ -63,6 +65,7 @@ export async function render(container, { profile } = {}) {
       await renderAlerts(content);
       refreshBadge();
     } else if (activeTabId === 'tutor') await renderTutorMetrics(content);
+    else if (activeTabId === 'subjects') await renderSubjects(content);
     else if (activeTabId === 'payments') await renderPayments(content);
   }
 

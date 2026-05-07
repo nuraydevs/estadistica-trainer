@@ -2,7 +2,9 @@ import { fetchProgress, saveProgress, debounce } from '../lib/progress.js';
 import { startSessionTracking } from '../lib/session-ping.js';
 import { mountTutor } from '../components/Tutor.js';
 import { mountProgressCard } from '../components/ProgressCard.js';
-import { updateProfile } from '../lib/learning-profile.js';
+import { updateProfile, getProfile } from '../lib/learning-profile.js';
+import { mountExamMode } from '../components/ExamMode.js';
+import { getSubjectExamMeta, daysUntilExam, shouldActivatePanic } from '../lib/exam-mode.js';
 
 export async function render(container, { subject, profile, onBack }) {
   container.innerHTML = '';
@@ -55,6 +57,21 @@ export async function render(container, { subject, profile, onBack }) {
   // Limpiamos loading y montamos: ProgressCard arriba + sub-app debajo
   container.innerHTML = '';
 
+  // Cargar metadata de examen para banner pánico
+  const examMeta = await getSubjectExamMeta(subject.slug).catch(() => null);
+  const examDate = examMeta?.exam_date || null;
+  const days = daysUntilExam(examDate);
+  const panic = shouldActivatePanic(examDate);
+
+  // Header con botón "Modo examen" y (si aplica) banner pánico
+  const exBar = document.createElement('div');
+  exBar.className = 'exam-bar' + (panic ? ' exam-bar--panic' : '');
+  exBar.innerHTML = `
+    ${panic ? `<span class="exam-bar__panic">⚡ Quedan ${days} días — Modo pánico activado</span>` : (days != null && days >= 0 ? `<span class="muted">Examen en ${days} días</span>` : '<span></span>')}
+    <button class="btn btn--sm btn--primary" data-action="exam">Modo examen</button>
+  `;
+  container.appendChild(exBar);
+
   // Wrapper con max-width igual al de la sub-app (#app: 860px)
   const progressWrap = document.createElement('div');
   progressWrap.className = 'progress-card-host';
@@ -64,6 +81,19 @@ export async function render(container, { subject, profile, onBack }) {
   mountProgressCard(progressWrap, { userId, subject })
     .then((pc) => { progressCard = pc; })
     .catch((err) => console.warn('[SubjectView] ProgressCard fallo', err));
+
+  let examOverlay = null;
+  exBar.querySelector('[data-action="exam"]').addEventListener('click', async () => {
+    if (examOverlay) return;
+    const profileForExam = await getProfile(userId, subject.slug).catch(() => null);
+    examOverlay = mountExamMode(document.body, {
+      subject,
+      profile: { ...(profileForExam || {}), user_id: userId },
+      examDate,
+      getQuestions: (type, prof) => instance?.getExamQuestions?.(type, prof) || [],
+      onExit: () => { examOverlay = null; }
+    });
+  });
 
   const shell = document.createElement('div');
   shell.id = 'app';
@@ -128,6 +158,7 @@ export async function render(container, { subject, profile, onBack }) {
       debouncedSave.flush?.();
       try { sessionTracker?.stop?.(); } catch {}
       try { tutor?.unmount?.(); } catch {}
+      try { examOverlay?.unmount?.(); } catch {}
       try { progressCard?.unmount?.(); } catch {}
       try { instance?.unmount?.(); } catch {}
       container.innerHTML = '';
