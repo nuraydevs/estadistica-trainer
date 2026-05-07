@@ -140,7 +140,7 @@ export default async function handler(req, res) {
   }
 
   // Carga learning_profile (memoria persistente del alumno)
-  let profile = null;
+  let learningProfile = null;
   try {
     const { data } = await supabase
       .from('learning_profile')
@@ -148,14 +148,14 @@ export default async function handler(req, res) {
       .eq('user_id', user.id)
       .eq('subject_slug', subject)
       .maybeSingle();
-    profile = data || null;
+    learningProfile = data || null;
   } catch (err) {
     console.warn('[tutor] no se pudo cargar profile', err);
   }
 
   // System prompt + análisis del historial + perfil persistente
   const insights = analyzeHistory(history, subject);
-  const systemPrompt = buildSystemPrompt({ subjectSlug: subject, context, history, profile });
+  const systemPrompt = buildSystemPrompt({ subjectSlug: subject, context, history, profile: learningProfile });
 
   // Contenido para Gemini
   const contents = [];
