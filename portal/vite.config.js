@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite';
 import path from 'node:path';
 import url from 'node:url';
+import fs from 'node:fs/promises';
 
 const repoRoot = path.resolve(__dirname, '..');
 
@@ -12,10 +13,48 @@ function portalApiPlugin() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (!req.url || !req.url.startsWith('/api/')) return next();
-        const route = req.url.split('?')[0].replace(/^\/api\//, '');
+        const [pathPart, queryStr] = req.url.split('?');
+        const route = pathPart.replace(/^\/api\//, '');
         if (!route) return next();
 
-        const filePath = path.resolve(__dirname, 'api', `${route}.js`);
+        // Parse query into req.query
+        const query = {};
+        if (queryStr) {
+          for (const pair of queryStr.split('&')) {
+            const [k, v] = pair.split('=');
+            if (k) query[decodeURIComponent(k)] = decodeURIComponent(v || '');
+          }
+        }
+        req.query = query;
+
+        // Intentamos primero el path literal `<route>.js`.
+        // Si no existe, buscamos un dynamic route `[param].js` en el directorio padre.
+        const literal = path.resolve(__dirname, 'api', `${route}.js`);
+        const segments = route.split('/');
+        const last = segments.pop();
+        const parentDir = path.resolve(__dirname, 'api', ...segments);
+
+        let filePath = null;
+        try { await fs.access(literal); filePath = literal; }
+        catch {
+          try {
+            const entries = await fs.readdir(parentDir);
+            const dyn = entries.find((f) => /^\[[^\]]+\]\.js$/.test(f));
+            if (dyn) {
+              filePath = path.join(parentDir, dyn);
+              const paramName = dyn.match(/^\[([^\]]+)\]\.js$/)[1];
+              req.query[paramName] = last;
+            }
+          } catch {}
+        }
+
+        if (!filePath) {
+          res.statusCode = 404;
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ error: 'route_not_found', route }));
+          return;
+        }
+
         try {
           const modUrl = url.pathToFileURL(filePath).href + `?t=${Date.now()}`;
           const mod = await import(modUrl);
