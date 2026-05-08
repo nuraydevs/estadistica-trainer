@@ -4,8 +4,9 @@ import { render as renderLogin } from './pages/Login.js';
 import { render as renderHub } from './pages/Hub.js';
 import { render as renderSubject } from './pages/SubjectView.js';
 import { render as renderAdmin } from './pages/AdminPanel.js';
+import { render as renderCommunity } from './pages/Community.js';
 import { render as renderHeader } from './components/Header.js';
-import { fetchUserProfile } from './lib/presence.js';
+import { fetchProfile as fetchSocialProfile } from './lib/presence.js';
 import { openProfileSetup } from './components/ProfileSetup.js';
 
 const root = document.getElementById('portal-root');
@@ -13,8 +14,9 @@ const root = document.getElementById('portal-root');
 const state = {
   session: null,
   profile: null,
+  socialProfile: null,
   unlockedSlugs: [],
-  view: 'login', // 'login' | 'hub' | 'subject' | 'admin'
+  view: 'login', // login | hub | community | subject | admin
   currentSubject: null,
   currentSubjectInstance: null
 };
@@ -35,6 +37,7 @@ onAuthChange(async (session) => {
   state.session = session;
   if (!session) {
     state.profile = null;
+    state.socialProfile = null;
     state.unlockedSlugs = [];
     state.view = 'login';
     rerender();
@@ -55,7 +58,6 @@ async function loadUserContext() {
     fetchUserSubjects(userId)
   ]);
   if (!profile) {
-    // Usuario en auth pero no en public.users → migración no aplicada o trigger falló.
     state.profile = {
       id: userId,
       email: state.session.user.email,
@@ -72,38 +74,49 @@ async function loadUserContext() {
   }
   state.unlockedSlugs = subjects.map((s) => s.subject_slug);
 
-  // Si el usuario no tiene perfil público aún, sugerimos personalización (no bloquea)
+  // Carga perfil social
   try {
-    const social = await fetchUserProfile(userId);
-    if (!social) {
-      openProfileSetup({ userId, fullName: state.profile.full_name, email: state.profile.email })
-        .catch(() => {});
-    }
-  } catch {}
+    state.socialProfile = await fetchSocialProfile();
+  } catch { state.socialProfile = null; }
+
+  // Primer login → sugerimos personalizar (no bloquea)
+  if (!state.socialProfile) {
+    openProfileSetup({ userId, fullName: state.profile.full_name, email: state.profile.email })
+      .then((saved) => { if (saved) { state.socialProfile = saved; rerender(); } })
+      .catch(() => {});
+  }
+}
+
+async function reloadSocialProfile() {
+  try { state.socialProfile = await fetchSocialProfile(); } catch {}
+  rerender();
 }
 
 async function rerender() {
-  // Limpiar instancia previa de sub-app si la había
-  try {
-    state.currentSubjectInstance?.unmount?.();
-  } catch {}
+  try { state.currentSubjectInstance?.unmount?.(); } catch {}
   state.currentSubjectInstance = null;
 
   root.innerHTML = '';
 
   if (state.view === 'login' || !state.session) {
-    renderLogin(root, { onLoggedIn: async () => { /* onAuthChange refresca */ } });
+    renderLogin(root, { onLoggedIn: async () => {} });
     return;
   }
 
-  // Header siempre visible para usuarios logueados
   root.appendChild(
     renderHeader({
       profile: state.profile,
+      socialProfile: state.socialProfile,
       view: state.view,
       onGoHub: () => goHub(),
+      onGoCommunity: () => { state.view = 'community'; rerender(); },
       onGoAdmin: () => { state.view = 'admin'; rerender(); },
-      onLogout: async () => { await signOut(); }
+      onLogout: async () => { await signOut(); },
+      onEditProfile: async () => {
+        const userId = state.session.user.id;
+        await openProfileSetup({ userId, fullName: state.profile.full_name, email: state.profile.email });
+        await reloadSocialProfile();
+      }
     })
   );
 
@@ -114,25 +127,26 @@ async function rerender() {
   if (state.view === 'hub') {
     renderHub(shell, {
       profile: state.profile,
+      socialProfile: state.socialProfile,
       unlockedSlugs: state.unlockedSlugs,
       onOpenSubject: (subject) => {
         state.currentSubject = subject;
         state.view = 'subject';
         rerender();
-      }
+      },
+      onGoCommunity: () => { state.view = 'community'; rerender(); }
     });
     return;
   }
 
+  if (state.view === 'community') {
+    await renderCommunity(shell, { profile: state.profile });
+    return;
+  }
+
   if (state.view === 'admin') {
-    if (!state.profile?.is_admin) {
-      goHub();
-      return;
-    }
-    await renderAdmin(shell, {
-      profile: state.profile,
-      onBack: () => goHub()
-    });
+    if (!state.profile?.is_admin) { goHub(); return; }
+    await renderAdmin(shell, { profile: state.profile, onBack: () => goHub() });
     return;
   }
 
@@ -140,6 +154,7 @@ async function rerender() {
     state.currentSubjectInstance = await renderSubject(shell, {
       subject: state.currentSubject,
       profile: state.profile,
+      socialProfile: state.socialProfile,
       onBack: () => goHub()
     });
   }

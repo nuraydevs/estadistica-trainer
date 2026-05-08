@@ -7,7 +7,6 @@ import { mountExamMode } from '../components/ExamMode.js';
 import { getSubjectExamMeta, daysUntilExam, shouldActivatePanic } from '../lib/exam-mode.js';
 import { mountSocialPresence } from '../components/SocialPresence.js';
 import { mountCommunityInsights } from '../components/CommunityInsights.js';
-import { startPresenceLoop } from '../lib/presence.js';
 
 export async function render(container, { subject, profile, onBack }) {
   container.innerHTML = '';
@@ -106,16 +105,8 @@ export async function render(container, { subject, profile, onBack }) {
     .then((ci) => { communityInsights = ci; })
     .catch(() => {});
 
-  // Presence loop (heartbeat 30s)
-  const presenceTracker = startPresenceLoop({
-    userId,
-    subjectSlug: subject.slug,
-    getSection: () => {
-      try { return instance?.getCurrentContext?.() || ''; }
-      catch { return ''; }
-    },
-    isVisible: profile?.show_online_status !== false
-  });
+  // SocialPresence ya gestiona la suscripción Realtime + el track histórico.
+  // No necesitamos un presence loop separado.
 
   let examOverlay = null;
   exBar.querySelector('[data-action="exam"]').addEventListener('click', async () => {
@@ -192,7 +183,7 @@ export async function render(container, { subject, profile, onBack }) {
       document.removeEventListener('estadistica-exercise-result', onExerciseResult);
       debouncedSave.flush?.();
       try { sessionTracker?.stop?.(); } catch {}
-      try { presenceTracker?.stop?.(); } catch {}
+      try { /* presence handled by SocialPresence */ } catch {}
       try { tutor?.unmount?.(); } catch {}
       try { examOverlay?.unmount?.(); } catch {}
       try { progressCard?.unmount?.(); } catch {}

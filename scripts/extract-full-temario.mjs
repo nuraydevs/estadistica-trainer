@@ -67,7 +67,7 @@ REGLAS INNEGOCIABLES:
 FORMATO DE SALIDA: solo HTML del contenido (sin <!DOCTYPE>, <html>, <head>, <body>).
 Empieza directamente con el contenido del PDF.`;
 
-const MODEL = 'gemini-1.5-pro';
+const MODEL = 'gemini-2.5-flash';
 
 async function extractPdf(absPath) {
   const buf = readFileSync(absPath);
@@ -82,7 +82,7 @@ async function extractPdf(absPath) {
     }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 8192
+      maxOutputTokens: 32768
     }
   };
   const res = await fetch(url, {

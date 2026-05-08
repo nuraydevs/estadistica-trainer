@@ -1,134 +1,183 @@
-// Presencia online + perfil público.
-// Para evitar exigir Supabase Realtime habilitado en el proyecto, hacemos
-// polling cada 30s a online_presence (last_seen <2 min se considera "online").
+// Cliente de presencia online basado en Supabase Realtime channels.
+// Cada usuario hace `channel.track({...})` y recibe presence sync events.
+// Para `online_presence` también escribimos vía /api/social/presence (track/list)
+// para tener histórico y rankings.
 
 import { supabase } from './supabase.js';
+export { avatarHtml, GENERATED_AVATARS, avatarSvgById, initialAvatar } from '../components/AvatarPicker.js';
 
-const PING_INTERVAL_MS = 30 * 1000;
-const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
-
-export async function fetchUserProfile(userId) {
-  if (!userId) return null;
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) {
-    console.warn('[presence] fetchUserProfile', error);
+async function authedPost(path, body) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  if (!token) return null;
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    console.warn(`[presence] ${path} ${res.status}`);
     return null;
   }
-  return data;
+  return res.json();
 }
 
-export async function upsertProfile(userId, patch) {
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .upsert(
-      { user_id: userId, ...patch, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id' }
-    )
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data;
+export function fetchProfile() {
+  return supabase.auth.getSession().then(async ({ data }) => {
+    const token = data?.session?.access_token;
+    if (!token) return null;
+    const res = await fetch('/api/social/profile', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.profile;
+  });
 }
 
-export async function setPresence({ userId, subjectSlug, currentSection, isVisible }) {
-  await supabase
-    .from('online_presence')
-    .upsert(
-      {
-        user_id: userId,
-        subject_slug: subjectSlug,
-        current_section: currentSection,
-        is_visible: isVisible !== false,
-        last_seen: new Date().toISOString()
-      },
-      { onConflict: 'user_id' }
-    );
+export function saveProfile(payload) {
+  return authedPost('/api/social/profile', payload).then((r) => r?.profile);
 }
 
-export async function clearPresence(userId) {
-  await supabase.from('online_presence').delete().eq('user_id', userId);
+export function fetchOnlineList(subject) {
+  return authedPost('/api/social/presence', { action: 'list', subject }).then((r) => r?.online || []);
 }
 
-export async function fetchOnlineUsers(subjectSlug) {
-  const cutoff = new Date(Date.now() - ONLINE_THRESHOLD_MS).toISOString();
-  let query = supabase
-    .from('online_presence')
-    .select('user_id, subject_slug, current_section, is_visible, last_seen')
-    .gte('last_seen', cutoff);
-  if (subjectSlug) query = query.eq('subject_slug', subjectSlug);
-  const { data: rows, error } = await query;
-  if (error) {
-    console.warn('[presence] fetchOnlineUsers', error);
-    return [];
-  }
-  const visible = (rows || []).filter((r) => r.is_visible);
-  if (!visible.length) return [];
-
-  const userIds = visible.map((r) => r.user_id);
-  const { data: profiles } = await supabase
-    .from('user_profiles')
-    .select('user_id, display_name, avatar_url, avatar_type, avatar_banned')
-    .in('user_id', userIds);
-  const profileMap = new Map((profiles || []).map((p) => [p.user_id, p]));
-
-  return visible.map((r) => ({
-    ...r,
-    profile: profileMap.get(r.user_id) || null
-  }));
+export function trackPresence({ subject, section }) {
+  return authedPost('/api/social/presence', { action: 'track', subject, section });
 }
 
-export function startPresenceLoop({ userId, subjectSlug, getSection, isVisible }) {
-  if (!userId) return { stop() {} };
+export function untrackPresence() {
+  return authedPost('/api/social/presence', { action: 'untrack' });
+}
 
-  // ping inicial inmediato
-  setPresence({
-    userId,
-    subjectSlug,
-    currentSection: typeof getSection === 'function' ? getSection() : '',
-    isVisible
+/**
+ * Suscripción con Supabase Realtime (presence channel).
+ * Devuelve un controller con .updateSection(text) y .stop().
+ *
+ * Internamente:
+ *  - canal 'presence-<subject>' compartido por todos los usuarios online
+ *  - track payload incluye user_id, display_name, avatar_url, avatar_type, section, is_self
+ *  - además POSTea a /api/social/presence cada 60s para histórico
+ */
+export function subscribePresence({ subject, profile, getSection, isVisible, onSync }) {
+  if (!subject) return { stop() {}, updateSection() {} };
+
+  const channelName = `presence-${subject}`;
+  const channel = supabase.channel(channelName, {
+    config: { presence: { key: profile?.user_id || 'anon' } }
   });
 
-  const id = setInterval(() => {
-    setPresence({
-      userId,
-      subjectSlug,
-      currentSection: typeof getSection === 'function' ? getSection() : '',
-      isVisible
+  let lastSection = '';
+  let trackPostId = null;
+
+  function snapshotState() {
+    const state = channel.presenceState();
+    const out = [];
+    Object.values(state).forEach((arr) => {
+      (arr || []).forEach((m) => out.push(m));
     });
-  }, PING_INTERVAL_MS);
+    return out;
+  }
+
+  channel
+    .on('presence', { event: 'sync' }, () => onSync?.(snapshotState()))
+    .on('presence', { event: 'join' }, () => onSync?.(snapshotState()))
+    .on('presence', { event: 'leave' }, () => onSync?.(snapshotState()))
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED' && isVisible !== false) {
+        lastSection = (typeof getSection === 'function' ? getSection() : '') || '';
+        await channel.track({
+          user_id: profile?.user_id,
+          display_name: profile?.display_name || 'Anónimo',
+          avatar_type: profile?.avatar_type || 'none',
+          avatar_url: profile?.avatar_url || null,
+          section: lastSection,
+          subject,
+          ts: Date.now()
+        });
+        // Histórico cada 60s
+        trackPostId = setInterval(() => {
+          trackPresence({ subject, section: lastSection });
+        }, 60000);
+        trackPresence({ subject, section: lastSection });
+      }
+    });
 
   return {
+    async updateSection(section) {
+      if (section === lastSection) return;
+      lastSection = section || '';
+      try {
+        await channel.track({
+          user_id: profile?.user_id,
+          display_name: profile?.display_name || 'Anónimo',
+          avatar_type: profile?.avatar_type || 'none',
+          avatar_url: profile?.avatar_url || null,
+          section: lastSection,
+          subject,
+          ts: Date.now()
+        });
+      } catch {}
+    },
+    async setVisibility(visible) {
+      if (visible) {
+        await channel.track({
+          user_id: profile?.user_id,
+          display_name: profile?.display_name || 'Anónimo',
+          avatar_type: profile?.avatar_type || 'none',
+          avatar_url: profile?.avatar_url || null,
+          section: lastSection,
+          subject,
+          ts: Date.now()
+        });
+      } else {
+        await channel.untrack();
+      }
+    },
     stop() {
-      clearInterval(id);
-      clearPresence(userId).catch(() => {});
+      if (trackPostId) clearInterval(trackPostId);
+      try { channel.untrack(); } catch {}
+      try { supabase.removeChannel(channel); } catch {}
+      untrackPresence();
     }
   };
 }
 
-// Avatares prediseñados (estilo minimalista — emoji icons en colores neutros).
-export const GENERATED_AVATARS = [
-  '🐱', '🦊', '🐼', '🐯', '🦁', '🐨', '🐸', '🦉', '🐙', '🦋', '🌵', '🍀'
-];
-
-export function avatarHtml(profile, fallbackName = '') {
-  if (!profile || profile.avatar_banned) {
-    return `<div class="avatar avatar--init">${initialOf(profile?.display_name || fallbackName)}</div>`;
-  }
-  if (profile.avatar_type === 'photo' && profile.avatar_url) {
-    return `<img class="avatar avatar--photo" src="${profile.avatar_url}" alt="">`;
-  }
-  if (profile.avatar_type === 'generated' && profile.avatar_url) {
-    return `<div class="avatar avatar--gen">${profile.avatar_url}</div>`;
-  }
-  return `<div class="avatar avatar--init">${initialOf(profile.display_name || fallbackName)}</div>`;
+// Subida de avatar con compresión a 256x256
+export async function uploadAvatar(file, userId) {
+  if (!file || !userId) throw new Error('Faltan file o userId');
+  const dataUrl = await compressImage(file, 256);
+  const blob = await (await fetch(dataUrl)).blob();
+  const ext = blob.type.split('/')[1] || 'png';
+  const path = `${userId}/avatar-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from('avatars').upload(path, blob, {
+    contentType: blob.type,
+    upsert: true
+  });
+  if (error) throw error;
+  const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+  return pub.publicUrl;
 }
 
-function initialOf(name) {
-  const trimmed = String(name || '').trim();
-  if (!trimmed) return '?';
-  return trimmed[0].toUpperCase();
+function compressImage(file, maxSize = 256) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try {
+        const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        const w = Math.round(img.width * ratio);
+        const h = Math.round(img.height * ratio);
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      } catch (e) { reject(e); }
+    };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
 }

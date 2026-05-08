@@ -1,7 +1,22 @@
 // Moderación de la capa social: lista de perfiles públicos + botones banear avatar / banear usuario.
+// Cada acción se loguea en moderation_log via /api/admin/moderate.
 
 import { supabase } from '../../lib/supabase.js';
-import { avatarHtml } from '../../lib/presence.js';
+import { avatarHtml } from '../../components/AvatarPicker.js';
+
+async function moderate(action, userId, reason = null) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  const res = await fetch('/api/admin/moderate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ userId, action, reason })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || body.error || 'moderate_failed');
+  }
+}
 
 export async function render(container) {
   container.innerHTML = '';
@@ -69,29 +84,25 @@ function buildCard(profile, user, refresh) {
   `;
 
   card.querySelector('[data-action="ban-avatar"]').addEventListener('click', async () => {
-    if (!profile.avatar_banned) {
-      const reason = prompt('Razón del baneo del avatar:', 'Contenido inapropiado');
-      if (reason === null) return;
-      await supabase.from('user_profiles').update({
-        avatar_banned: true,
-        ban_reason: reason,
-        avatar_type: 'none',
-        avatar_url: null,
-        warned_at: new Date().toISOString()
-      }).eq('user_id', profile.user_id);
-    } else {
-      await supabase.from('user_profiles').update({
-        avatar_banned: false,
-        ban_reason: null
-      }).eq('user_id', profile.user_id);
-    }
-    refresh();
+    try {
+      if (!profile.avatar_banned) {
+        const reason = prompt('Razón del baneo del avatar:', 'Contenido inapropiado');
+        if (reason === null) return;
+        await moderate('avatar_banned', profile.user_id, reason);
+      } else {
+        await moderate('avatar_cleared', profile.user_id);
+      }
+      refresh();
+    } catch (err) { alert('Error: ' + err.message); }
   });
 
   card.querySelector('[data-action="ban-user"]').addEventListener('click', async () => {
+    if (user.active === false) return;
     if (!confirm('¿Banear (desactivar) la cuenta de este usuario?')) return;
-    await supabase.from('users').update({ active: false }).eq('id', profile.user_id);
-    refresh();
+    try {
+      await moderate('user_banned', profile.user_id, prompt('Razón (opcional):', ''));
+      refresh();
+    } catch (err) { alert('Error: ' + err.message); }
   });
 
   return card;
