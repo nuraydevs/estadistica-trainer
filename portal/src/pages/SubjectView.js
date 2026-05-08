@@ -116,7 +116,7 @@ export async function render(container, { subject, profile, onBack }) {
       subject,
       profile: { ...(profileForExam || {}), user_id: userId },
       examDate,
-      getQuestions: (type, prof) => instance?.getExamQuestions?.(type, prof) || [],
+      daysToExam: days,
       onExit: () => { examOverlay = null; }
     });
   });

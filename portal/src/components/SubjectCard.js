@@ -1,4 +1,4 @@
-export function render({ subject, unlocked, onOpen }) {
+export function render({ subject, unlocked, onOpen, examDate = null, daysToExam = null, lastExam = null }) {
   const card = document.createElement('div');
   card.className = 'subject-card';
 
@@ -22,12 +22,37 @@ export function render({ subject, unlocked, onOpen }) {
         ? '<p class="subject-card__hint">Contacta para desbloquear.</p>'
         : '<p class="subject-card__hint">Aún no construida.</p>';
 
+  // Footer con info de examen + último simulacro
+  let extra = '';
+  if (state === 'unlocked' && (examDate || lastExam)) {
+    const lines = [];
+    if (examDate) {
+      const examFmt = new Date(examDate).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+      const daysLine = daysToExam == null
+        ? `<span class="dim">Examen ${examFmt}</span>`
+        : daysToExam < 0
+          ? `<span class="dim">Examen ${examFmt} (pasado)</span>`
+          : daysToExam <= 7
+            ? `<span style="color: var(--warning);">⚡ Quedan ${daysToExam} días · ${examFmt}</span>`
+            : `<span class="dim">Examen ${examFmt} · ${daysToExam} días</span>`;
+      lines.push(daysLine);
+    }
+    if (lastExam) {
+      const days = lastExam.finishedAt ? Math.floor((Date.now() - new Date(lastExam.finishedAt).getTime()) / 86400000) : null;
+      const ago = days == null ? '' : days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days} días`;
+      const score = Number(lastExam.score).toFixed(1);
+      lines.push(`<span class="dim">Último simulacro: <strong>${score}/10</strong>${ago ? ` · ${ago}` : ''}</span>`);
+    }
+    extra = `<div class="subject-card__extra">${lines.join('<br>')}</div>`;
+  }
+
   card.innerHTML = `
     <div class="subject-card__head">
       <h3 class="subject-card__name">${subject.name}</h3>
       ${headerLabel}
     </div>
     <p class="subject-card__desc">${subject.description}</p>
+    ${extra}
     ${hint}
   `;
 

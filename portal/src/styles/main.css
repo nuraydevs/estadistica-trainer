@@ -1774,6 +1774,195 @@ a {
   color: var(--text-secondary);
 }
 
+/* ── Exam taking sticky header + progress bar ───────────── */
+
+.exam-screen__head--sticky {
+  position: sticky;
+  top: 0;
+  background: var(--bg-base);
+  z-index: 5;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exam-progress-bar {
+  width: 200px;
+  height: 4px;
+  background: var(--bg-active);
+  border-radius: 999px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.exam-progress-bar__fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+.exam-timer--warning { color: var(--warning); }
+.exam-timer--danger {
+  color: var(--danger);
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+.exam-question__meta {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.exam-card--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.exam-card--disabled:hover {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+
+/* ── Score card (review) ────────────────────────────────── */
+
+.exam-score-card {
+  text-align: center;
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  margin: var(--space-4) 0;
+  background: var(--bg-elevated);
+}
+
+.exam-score-card--aprobado { background: var(--success-subtle); border-color: var(--success); }
+.exam-score-card--notable { background: var(--accent-subtle); border-color: var(--accent); }
+.exam-score-card--sobresaliente { background: var(--warning-subtle); border-color: var(--warning); }
+.exam-score-card--suspenso { background: var(--danger-subtle); border-color: var(--danger); }
+
+.exam-score-card__icon {
+  font-size: 32px;
+  line-height: 1;
+  margin-bottom: var(--space-1);
+}
+
+.exam-score-card__value {
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.exam-score-card__value .dim {
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.exam-score-card__verdict {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin-top: var(--space-2);
+}
+
+.exam-score-card__narrative {
+  margin-top: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.exam-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.exam-answer-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+}
+
+.exam-answer-toggle {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 0;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.exam-answer-toggle:hover { background: var(--bg-hover); }
+
+.exam-answer-block .exam-answer-body {
+  padding: var(--space-4);
+  display: none;
+  border-top: 1px solid var(--border);
+}
+
+.exam-answer-block--open .exam-answer-body { display: block; }
+
+/* ── History list ───────────────────────────────────────── */
+
+.exam-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exam-history-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.exam-history-row:hover { border-color: var(--accent); }
+
+/* ── Verdict badges ─────────────────────────────────────── */
+
+.exam-verdict-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.exam-verdict-badge--aprobado { color: var(--success); border-color: var(--success); }
+.exam-verdict-badge--notable { color: var(--accent); border-color: var(--accent); }
+.exam-verdict-badge--sobresaliente { color: var(--warning); border-color: var(--warning); font-weight: 600; }
+.exam-verdict-badge--suspenso { color: var(--danger); border-color: var(--danger); }
+
+.subject-card__extra {
+  margin-top: auto;
+  padding-top: var(--space-2);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+  line-height: 1.6;
+}
+
 /* ── Hub tabs ─────────────────────────────────────────────── */
 
 .hub-tabs {

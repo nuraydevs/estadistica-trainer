@@ -2,6 +2,8 @@ import { SUBJECTS } from '../lib/subjects.js';
 import { render as renderSubjectCard } from '../components/SubjectCard.js';
 import { fetchOnlineList } from '../lib/presence.js';
 import { getNotifications, markNotifShown } from '../lib/in-app-notifications.js';
+import { supabase } from '../lib/supabase.js';
+import { daysUntilExam } from '../lib/exam-mode.js';
 
 export function render(container, { profile, socialProfile, unlockedSlugs, onOpenSubject, onGoCommunity }) {
   container.innerHTML = '';
@@ -20,13 +22,23 @@ export function render(container, { profile, socialProfile, unlockedSlugs, onOpe
 
   const grid = wrap.querySelector('.hub-grid');
   const unlockedSet = new Set(unlockedSlugs);
+
+  // Render inicial sin metadata (placeholder rápido)
+  const cardRefs = new Map();
   SUBJECTS.forEach((subject) => {
-    grid.appendChild(renderSubjectCard({
+    const el = renderSubjectCard({
       subject,
       unlocked: unlockedSet.has(subject.slug),
       onOpen: onOpenSubject
-    }));
+    });
+    grid.appendChild(el);
+    cardRefs.set(subject.slug, el);
   });
+
+  // Cargar exam_date + último simulacro por asignatura desbloqueada (en paralelo)
+  if (profile?.id && unlockedSlugs?.length) {
+    enrichSubjectCards(grid, cardRefs, unlockedSlugs, profile.id, onOpenSubject).catch(() => {});
+  }
 
   // Notificaciones in-app
   if (profile?.id) {
@@ -69,6 +81,44 @@ export function render(container, { profile, socialProfile, unlockedSlugs, onOpe
     `;
     onlineEl.querySelector('button').addEventListener('click', () => onGoCommunity?.());
   }).catch(() => {});
+}
+
+async function enrichSubjectCards(grid, cardRefs, unlockedSlugs, userId, onOpenSubject) {
+  const [{ data: subjectsMeta }, { data: lastExams }] = await Promise.all([
+    supabase.from('subjects').select('slug, exam_date').in('slug', unlockedSlugs),
+    supabase.from('exam_sessions')
+      .select('subject_slug, score, finished_at')
+      .eq('user_id', userId)
+      .eq('status', 'finished')
+      .in('subject_slug', unlockedSlugs)
+      .order('finished_at', { ascending: false })
+  ]);
+
+  const examDateBySlug = new Map((subjectsMeta || []).map((s) => [s.slug, s.exam_date]));
+  const lastExamBySlug = new Map();
+  for (const e of (lastExams || [])) {
+    if (!lastExamBySlug.has(e.subject_slug)) {
+      lastExamBySlug.set(e.subject_slug, { score: e.score, finishedAt: e.finished_at });
+    }
+  }
+
+  for (const slug of unlockedSlugs) {
+    const subject = SUBJECTS.find((s) => s.slug === slug);
+    if (!subject) continue;
+    const examDate = examDateBySlug.get(slug);
+    const lastExam = lastExamBySlug.get(slug);
+    const newCard = renderSubjectCard({
+      subject,
+      unlocked: true,
+      onOpen: onOpenSubject,
+      examDate,
+      daysToExam: daysUntilExam(examDate),
+      lastExam
+    });
+    const old = cardRefs.get(slug);
+    if (old) old.replaceWith(newCard);
+    cardRefs.set(slug, newCard);
+  }
 }
 
 function escapeHtml(s) {

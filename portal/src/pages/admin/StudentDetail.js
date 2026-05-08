@@ -34,7 +34,8 @@ async function populate(body, user, onChange) {
     { data: alerts },
     { data: tutorUsage },
     { data: profiles },
-    { data: attempts }
+    { data: attempts },
+    { data: examSessions }
   ] = await Promise.all([
     supabase.from('user_subjects').select('subject_slug, granted_at, granted_by').eq('user_id', user.id),
     supabase.from('payments').select('id, amount, currency, payment_method, subject_slug, notes, created_at, registered_by').eq('user_id', user.id).order('created_at', { ascending: false }),
@@ -42,7 +43,8 @@ async function populate(body, user, onChange) {
     supabase.from('session_alerts').select('id, alert_type, details, created_at, reviewed').eq('user_id', user.id).order('created_at', { ascending: false }),
     supabase.from('tutor_usage').select('subject_slug, questions_count, date').eq('user_id', user.id).gte('date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)),
     supabase.from('learning_profile').select('subject_slug, concepts_mastered, concepts_weak, concepts_broken, total_exercises_done, total_exercises_failed, streak_days, last_study_date').eq('user_id', user.id),
-    supabase.from('exercise_attempts').select('attempted_at, result').eq('user_id', user.id).gte('attempted_at', new Date(Date.now() - 14 * 86400000).toISOString())
+    supabase.from('exercise_attempts').select('attempted_at, result').eq('user_id', user.id).gte('attempted_at', new Date(Date.now() - 14 * 86400000).toISOString()),
+    supabase.from('exam_sessions').select('id, subject_slug, exam_type, status, started_at, finished_at, score, max_score, time_limit_minutes, metadata').eq('user_id', user.id).eq('status', 'finished').order('finished_at', { ascending: false }).limit(10)
   ]);
 
   const subjectsHtml = (subjectGrants || []).length
@@ -158,6 +160,33 @@ async function populate(body, user, onChange) {
     return `<div class="heat-cell heat-cell--${intensity}" title="${d.key}: ${d.count}"></div>`;
   }).join('') + '</div>';
 
+  // ── Simulacros de examen ──
+  const exams = examSessions || [];
+  const avgScore = exams.length
+    ? Math.round((exams.reduce((acc, e) => acc + Number(e.score || 0), 0) / exams.length) * 10) / 10
+    : null;
+  const examsHtml = exams.length
+    ? `<p class="muted" style="margin: 0 0 var(--space-2);">Nota media: <strong>${avgScore} / 10</strong> sobre ${exams.length} simulacros</p>` +
+      '<table class="admin-table" style="font-size: 12px;"><thead><tr>' +
+      '<th>Fecha</th><th>Asignatura</th><th>Tipo</th><th>Nota</th><th>Veredicto</th><th>Tiempo</th>' +
+      '</tr></thead><tbody>' +
+      exams.map((e) => {
+        const verdict = e.metadata?.verdict || 'sin_evaluar';
+        const tiempo = e.finished_at && e.started_at
+          ? Math.round((new Date(e.finished_at).getTime() - new Date(e.started_at).getTime()) / 60000)
+          : null;
+        return `
+          <tr>
+            <td>${formatDate(e.finished_at || e.started_at)}</td>
+            <td>${slugToName(e.subject_slug)}</td>
+            <td>${escapeHtml(e.exam_type || '')}</td>
+            <td><strong>${formatMoney(e.score, '').trim()}</strong> / 10</td>
+            <td><span class="exam-verdict-badge exam-verdict-badge--${verdict}">${verdictLabel(verdict)}</span></td>
+            <td>${tiempo != null ? tiempo + ' min' : '—'}</td>
+          </tr>`;
+      }).join('') + '</tbody></table>'
+    : '<p class="muted">Aún no ha hecho simulacros.</p>';
+
   body.innerHTML = `
     <div class="detail-grid">
       <div class="detail-section detail-section--span2">
@@ -165,6 +194,10 @@ async function populate(body, user, onChange) {
         ${learningHtml}
         <h4 style="margin-top: var(--space-3);">Actividad últimas 2 semanas</h4>
         ${heatHtml}
+      </div>
+      <div class="detail-section detail-section--span2">
+        <h3>Simulacros de examen</h3>
+        ${examsHtml}
       </div>
       <div class="detail-section">
         <h3>Asignaturas</h3>
@@ -333,4 +366,8 @@ function formatMoney(amount, cur = 'EUR') {
 function truncate(s, n) {
   if (s.length <= n) return s;
   return s.slice(0, n - 1) + '…';
+}
+
+function verdictLabel(v) {
+  return ({ aprobado: 'Aprobado', notable: 'Notable', sobresaliente: 'Sobresaliente', suspenso: 'Suspenso' })[v] || 'Sin evaluar';
 }
