@@ -72,6 +72,20 @@ export function successRate(profile) {
 }
 
 /**
+ * Wrapper con la firma de la spec del bloque 4.
+ * Equivalente a updateProfile pero con nombres de parámetros en camelCase.
+ */
+export async function recordAttempt({ userId, subject, exerciseId, concept, result, hintsUsed = 0, timeSpent = 0 }) {
+  return updateProfile(userId, subject, {
+    exercise_id: exerciseId,
+    concept,
+    result,
+    hints_used: hintsUsed,
+    time_spent_seconds: timeSpent
+  });
+}
+
+/**
  * Aplica un nuevo intento al perfil y persiste.
  * @param {string} userId
  * @param {string} subjectSlug

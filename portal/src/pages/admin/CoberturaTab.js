@@ -9,12 +9,36 @@ export async function render(container) {
   const wrap = document.createElement('section');
   wrap.className = 'admin-cobertura';
   wrap.innerHTML = `
-    <p class="muted">Estado del temario por asignatura. Re-extrae con IA si actualizas un PDF.</p>
+    <div class="admin-toolbar">
+      <p class="muted" style="flex: 1;">Estado del temario por asignatura. Re-extrae con IA si actualizas un PDF.</p>
+      <button class="btn btn--sm" id="refresh-community">↻ Refrescar community stats</button>
+    </div>
     <div id="cob-content"></div>
     <h3 class="admin-tutor__title" style="margin-top: var(--space-5)">Feedback pendiente</h3>
     <div id="cob-feedback"></div>
   `;
   container.appendChild(wrap);
+
+  wrap.querySelector('#refresh-community').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.textContent = '⏳ Refrescando…';
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      const res = await fetch('/api/admin/refresh-community-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({})
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.message || body.error || res.status);
+      btn.textContent = '✓ Stats actualizadas';
+      setTimeout(() => { btn.textContent = '↻ Refrescar community stats'; btn.disabled = false; }, 2500);
+    } catch (err) {
+      alert('Error: ' + err.message);
+      btn.disabled = false; btn.textContent = '↻ Refrescar community stats';
+    }
+  });
 
   await populateMaterials(wrap.querySelector('#cob-content'));
   await populateFeedback(wrap.querySelector('#cob-feedback'));

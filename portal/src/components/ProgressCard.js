@@ -84,28 +84,49 @@ export async function mountProgressCard(container, { userId, subject }) {
 }
 
 async function loadInsights(userId, subjectSlug) {
-  // Últimos 14 días de actividad para el calendario tipo GitHub
-  const since = new Date(Date.now() - 14 * 86400000).toISOString();
+  // Últimas 4 semanas de actividad para el calendario tipo GitHub
+  const since = new Date(Date.now() - 28 * 86400000).toISOString();
   const { data } = await supabase
     .from('exercise_attempts')
-    .select('attempted_at, result')
+    .select('attempted_at, result, time_spent_seconds')
     .eq('user_id', userId)
     .eq('subject_slug', subjectSlug)
     .gte('attempted_at', since);
 
   const byDay = new Map();
+  let totalTime = 0;
+  let countTime = 0;
   (data || []).forEach((a) => {
     const day = a.attempted_at.slice(0, 10);
     byDay.set(day, (byDay.get(day) || 0) + 1);
+    if (a.time_spent_seconds > 0 && a.time_spent_seconds < 1800) {
+      totalTime += a.time_spent_seconds;
+      countTime += 1;
+    }
   });
   const days = [];
-  for (let i = 13; i >= 0; i--) {
+  const today = new Date().toISOString().slice(0, 10);
+  for (let i = 27; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    days.push({ date: key, count: byDay.get(key) || 0 });
+    days.push({ date: key, count: byDay.get(key) || 0, isToday: key === today });
   }
-  return { days };
+  const avgTimeSec = countTime ? Math.round(totalTime / countTime) : 0;
+  return { days, avgTimeSec };
+}
+
+function formatHour(h) {
+  if (h == null || h === '' || isNaN(h)) return '—';
+  return `${String(h).padStart(2, '0')}:00`;
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
 }
 
 function panelHtml(profile, insights) {
@@ -117,7 +138,8 @@ function panelHtml(profile, insights) {
   const heatmap = insights.days.map((d) => {
     const intensity = d.count === 0 ? 0 : d.count <= 2 ? 1 : d.count <= 5 ? 2 : 3;
     const label = `${d.date}: ${d.count} intentos`;
-    return `<div class="heat-cell heat-cell--${intensity}" title="${label}"></div>`;
+    const cls = `heat-cell heat-cell--${intensity}${d.isToday ? ' heat-cell--today' : ''}`;
+    return `<div class="${cls}" title="${label}"></div>`;
   }).join('');
 
   return `
@@ -142,8 +164,19 @@ function panelHtml(profile, insights) {
       </section>
 
       <section class="progress-section">
-        <h4>Actividad últimos 14 días</h4>
-        <div class="heatmap">${heatmap}</div>
+        <h4>Actividad últimas 4 semanas</h4>
+        <div class="heatmap heatmap--4w">${heatmap}</div>
+      </section>
+
+      <section class="progress-section progress-section--inline">
+        <div>
+          <span class="progress-stat__label">Mejor hora</span>
+          <span class="progress-stat__value progress-stat__value--sm">${formatHour(profile.best_hour)}</span>
+        </div>
+        <div>
+          <span class="progress-stat__label">Tiempo medio</span>
+          <span class="progress-stat__value progress-stat__value--sm">${formatDuration(insights.avgTimeSec)}</span>
+        </div>
       </section>
 
       ${broken.length ? `

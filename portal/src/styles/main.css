@@ -1441,6 +1441,32 @@ a {
 .heat-cell--1 { background: var(--accent-subtle); border-color: var(--accent-subtle); }
 .heat-cell--2 { background: rgba(74, 124, 247, 0.5); border-color: rgba(74, 124, 247, 0.5); }
 .heat-cell--3 { background: var(--accent); border-color: var(--accent); }
+.heat-cell--today { box-shadow: 0 0 0 1.5px var(--text-secondary); }
+
+.heatmap--4w {
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.progress-section--inline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.progress-section--inline > div {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.progress-stat__value--sm {
+  font-size: 14px;
+}
 
 @media (max-width: 600px) {
   .progress-panel {
