@@ -93,6 +93,26 @@ export default async function handler(req, res) {
     .maybeSingle();
   const questionsToday = usageRow?.questions_count ?? 0;
 
+  // Rate limit por minuto: máximo 5 mensajes user en últimos 60s
+  if (!isAdmin) {
+    const { data: convo } = await supabase
+      .from('tutor_conversations')
+      .select('messages')
+      .eq('user_id', user.id)
+      .eq('subject_slug', subject)
+      .maybeSingle();
+    const cutoff = Date.now() - 60 * 1000;
+    const recentUserMsgs = (convo?.messages || []).filter(
+      (m) => m?.role === 'user' && m?.ts && new Date(m.ts).getTime() > cutoff
+    ).length;
+    if (recentUserMsgs >= 5) {
+      return json(res, 429, {
+        error: 'rate_limit_burst',
+        message: 'Demasiadas preguntas seguidas. Espera un momento.'
+      });
+    }
+  }
+
   if (!isAdmin && questionsToday >= settings.daily_user_limit) {
     return json(res, 429, {
       error: 'LIMIT_USER',

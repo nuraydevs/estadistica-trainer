@@ -63,10 +63,22 @@ export function untrackPresence() {
 export function subscribePresence({ subject, profile, getSection, isVisible, onSync }) {
   if (!subject) return { stop() {}, updateSection() {} };
 
+  // Sólo un channel global activo. Si saltamos a otra asignatura, cerramos el anterior.
+  if (typeof window !== 'undefined' && window.__presenceChannel) {
+    try { window.__presenceChannel.untrack(); } catch {}
+    try { supabase.removeChannel(window.__presenceChannel); } catch {}
+    window.__presenceChannel = null;
+    if (window.__presenceTrackTimer) {
+      clearInterval(window.__presenceTrackTimer);
+      window.__presenceTrackTimer = null;
+    }
+  }
+
   const channelName = `presence-${subject}`;
   const channel = supabase.channel(channelName, {
     config: { presence: { key: profile?.user_id || 'anon' } }
   });
+  if (typeof window !== 'undefined') window.__presenceChannel = channel;
 
   let lastSection = '';
   let trackPostId = null;
@@ -100,6 +112,7 @@ export function subscribePresence({ subject, profile, getSection, isVisible, onS
         trackPostId = setInterval(() => {
           trackPresence({ subject, section: lastSection });
         }, 60000);
+        if (typeof window !== 'undefined') window.__presenceTrackTimer = trackPostId;
         trackPresence({ subject, section: lastSection });
       }
     });
@@ -137,11 +150,27 @@ export function subscribePresence({ subject, profile, getSection, isVisible, onS
     },
     stop() {
       if (trackPostId) clearInterval(trackPostId);
+      if (typeof window !== 'undefined' && window.__presenceTrackTimer === trackPostId) {
+        window.__presenceTrackTimer = null;
+      }
       try { channel.untrack(); } catch {}
       try { supabase.removeChannel(channel); } catch {}
+      if (typeof window !== 'undefined' && window.__presenceChannel === channel) {
+        window.__presenceChannel = null;
+      }
       untrackPresence();
     }
   };
+}
+
+// Cleanup al cerrar la página: untrack + remove
+if (typeof window !== 'undefined' && !window.__presenceUnloadHooked) {
+  window.__presenceUnloadHooked = true;
+  window.addEventListener('beforeunload', () => {
+    try { window.__presenceChannel?.untrack(); } catch {}
+    try { window.__presenceChannel && supabase.removeChannel(window.__presenceChannel); } catch {}
+    if (window.__presenceTrackTimer) clearInterval(window.__presenceTrackTimer);
+  });
 }
 
 // Subida de avatar con compresión a 256x256

@@ -5,6 +5,7 @@
 import { getAuthedUser, jsonReply, readJsonBody } from '../_lib/auth-helpers.js';
 import { ESTADISTICA_EXAM_BANK, pickExamQuestions, getExpectedSolution, publicQuestion } from '../_lib/exam-bank.js';
 import { getSubjectMeta } from '../_lib/subjects-meta.js';
+import { log, validate } from '../_lib/logger.js';
 
 const MODEL = 'gemini-2.5-flash';
 const MAX_OUTPUT = 4096;
@@ -57,10 +58,16 @@ async function startExam(req, res, { user, supabase }) {
   let body;
   try { body = await readJsonBody(req); } catch { return jsonReply(res, 400, { error: 'bad_json' }); }
 
-  const subject = String(body?.subject || '').trim();
-  const examType = String(body?.examType || '').trim();
-  if (!subject) return jsonReply(res, 400, { error: 'missing_subject' });
-  if (!['completo', 'parcial', 'panico'].includes(examType)) return jsonReply(res, 400, { error: 'invalid_exam_type' });
+  const errors = validate(body, {
+    subject: { type: 'string', required: true, maxLen: 64 },
+    examType: { type: 'string', required: true, enum: ['completo', 'parcial', 'panico'] }
+  });
+  if (errors) {
+    log.warn('exam.start.bad_request', { user: user.id, errors, payload: body });
+    return jsonReply(res, 400, { error: 'bad_request', detail: errors });
+  }
+  const subject = body.subject.trim();
+  const examType = body.examType;
 
   // Verificar acceso a la asignatura
   const { data: access } = await supabase
@@ -144,15 +151,26 @@ async function startExam(req, res, { user, supabase }) {
 }
 
 // ── submit ──────────────────────────────────────────────────
+// Versioning anti-race: el cliente puede mandar `version`. Si la version
+// recibida es < a la actual en BD, se ignora silenciosamente para evitar
+// pisotear una respuesta posterior.
 async function submitAnswer(req, res, { user, supabase }) {
   if (req.method !== 'POST') return jsonReply(res, 405, { error: 'method_not_allowed' });
   let body;
   try { body = await readJsonBody(req); } catch { return jsonReply(res, 400, { error: 'bad_json' }); }
-  const sessionId = String(body?.sessionId || '');
-  const questionId = String(body?.questionId || '');
-  const userAnswer = String(body?.userAnswer || '');
+
+  const errors = validate(body, {
+    sessionId: { type: 'string', required: true },
+    questionId: { type: 'string', required: true }
+  });
+  if (errors) {
+    log.warn('exam.submit.bad_request', { user: user.id, errors });
+    return jsonReply(res, 400, { error: 'bad_request', detail: errors });
+  }
+  const { sessionId, questionId } = body;
+  const userAnswer = String(body?.userAnswer ?? '').slice(0, 50000);
   const timeSpent = Number(body?.timeSpent || 0);
-  if (!sessionId || !questionId) return jsonReply(res, 400, { error: 'missing_data' });
+  const clientVersion = Number.isFinite(body?.version) ? Number(body.version) : null;
 
   const { data: session } = await supabase
     .from('exam_sessions')
@@ -165,8 +183,22 @@ async function submitAnswer(req, res, { user, supabase }) {
   const ids = session.metadata?.question_ids || [];
   if (!ids.includes(questionId)) return jsonReply(res, 400, { error: 'question_not_in_session' });
 
+  // Lee la version actual para anti-race
+  const { data: existing } = await supabase
+    .from('exam_answers')
+    .select('version')
+    .eq('exam_session_id', sessionId)
+    .eq('question_id', questionId)
+    .maybeSingle();
+  const currentVersion = existing?.version ?? 0;
+  if (clientVersion !== null && clientVersion < currentVersion) {
+    // Submit obsoleto, ignorar pero devolver 200 con la versión actual
+    return jsonReply(res, 200, { ok: true, ignored: 'stale_version', currentVersion });
+  }
+
   const bank = BANKS[session.subject_slug] || [];
   const question = bank.find((q) => q.id === questionId);
+  const newVersion = currentVersion + 1;
 
   await supabase.from('exam_answers').upsert({
     exam_session_id: sessionId,
@@ -174,10 +206,11 @@ async function submitAnswer(req, res, { user, supabase }) {
     question_statement: question?.statement || null,
     user_answer: userAnswer,
     max_score: question?.points || 0,
-    time_spent_seconds: Math.max(0, Math.round(timeSpent))
+    time_spent_seconds: Math.max(0, Math.round(timeSpent)),
+    version: newVersion
   }, { onConflict: 'exam_session_id,question_id' });
 
-  return jsonReply(res, 200, { ok: true });
+  return jsonReply(res, 200, { ok: true, version: newVersion });
 }
 
 // ── finish ──────────────────────────────────────────────────
@@ -225,20 +258,28 @@ async function finishExam(req, res, { user, supabase }) {
     }
   }
 
-  // Corrección Gemini en paralelo
-  const corrections = await Promise.all(ids.map((qid) =>
+  // Corrección Gemini en paralelo con allSettled — si una falla, el resto sigue
+  const settled = await Promise.allSettled(ids.map((qid) =>
     correctOne(GEMINI_KEY, bank.find((x) => x.id === qid), answersByQ.get(qid), meta)
   ));
+
+  const corrections = settled.map((r, i) => {
+    if (r.status === 'fulfilled') return r.value;
+    log.error('exam.finish.correct_failed', { sessionId, questionId: ids[i] }, r.reason);
+    return correctionPending(`Error: ${r.reason?.message || 'unknown'}`);
+  });
 
   // Persistir cada corrección
   let totalEarned = 0;
   let totalMax = 0;
   const conceptsToReview = new Set();
+  const pendingQuestions = [];
 
   for (let i = 0; i < ids.length; i++) {
     const qid = ids[i];
     const corr = corrections[i];
     const ans = answersByQ.get(qid);
+    if (corr.correction_pending) pendingQuestions.push(qid);
     const earned = Number(corr.total_earned || 0);
     const max = Number(corr.total_max || ans?.max_score || 0);
     totalEarned += earned;
@@ -290,8 +331,21 @@ async function finishExam(req, res, { user, supabase }) {
     totalMax,
     verdict,
     conceptsToReview: Array.from(conceptsToReview),
-    answers: enrichedAnswers
+    answers: enrichedAnswers,
+    pendingQuestions  // si hay alguna corrección que falló, se puede reintentar
   });
+}
+
+function correctionPending(reason) {
+  return {
+    steps: [],
+    total_earned: 0,
+    total_max: 0,
+    summary: `Corrección pendiente: ${reason}. Inténtalo de nuevo más tarde.`,
+    concepts_to_review: [],
+    would_pass: false,
+    correction_pending: true
+  };
 }
 
 // ── history ─────────────────────────────────────────────────

@@ -320,5 +320,15 @@ async function refreshCommunityStats(req, res, { supabase }) {
     const { data, error: rpcErr } = await supabase.rpc('refresh_community_stats', { slug });
     results[slug] = rpcErr ? { error: rpcErr.message } : (data || true);
   }
+
+  // Limpieza de presencia stale (>30 min sin ping)
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+  const { error: delErr, count: deleted } = await supabase
+    .from('online_presence')
+    .delete({ count: 'exact' })
+    .lt('last_seen', cutoff);
+  if (delErr) results._presence_cleanup = { error: delErr.message };
+  else results._presence_cleanup = { deleted: deleted ?? 0, cutoff };
+
   return jsonReply(res, 200, { ok: true, results });
 }

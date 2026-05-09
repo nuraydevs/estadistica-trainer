@@ -2,7 +2,8 @@ import { getExerciseStatus, setExerciseStatus, resetExercise } from '../utils/st
 import { renderMath } from '@portal/lib/math-render.js';
 
 const RESULT_EVENT = 'estadistica-exercise-result';
-const startTimes = new Map(); // id -> timestamp
+const startTimes = new Map(); // exercise.id → timestamp
+const tickerByContainer = new WeakMap();
 
 function dispatchResult(exercise, status, result) {
   try {
@@ -23,16 +24,19 @@ function dispatchResult(exercise, status, result) {
 }
 
 export function render(container, { exercise, index, state, onChange }) {
+  // Limpia ticker previo si lo había (rerender)
+  const prev = tickerByContainer.get(container);
+  if (prev) { clearInterval(prev); tickerByContainer.delete(container); }
+
   container.innerHTML = '';
   const status = getExerciseStatus(state, exercise.id);
 
-  // Si el ejercicio está pendiente y no tenemos start time, inícialo
   if (status.status === 'pending' && !startTimes.has(exercise.id)) {
     startTimes.set(exercise.id, Date.now());
   }
 
   const card = document.createElement('article');
-  card.className = 'exercise';
+  card.className = 'exercise-card';
   card.dataset.status = status.status;
 
   card.appendChild(buildHeader(exercise, index, status));
@@ -44,61 +48,99 @@ export function render(container, { exercise, index, state, onChange }) {
       card.appendChild(buildAnswerStep(exercise, state, status, onChange));
     }
   } else {
+    card.appendChild(buildResultBanner(exercise, status));
     card.appendChild(buildSolution(exercise, status));
     card.appendChild(buildResetRow(exercise, state, onChange));
   }
 
   container.appendChild(card);
+
+  // KaTeX render para enunciado, pistas, solución
   renderMath(container);
+
+  // Timer sutil arriba a la derecha mientras está pending
+  if (status.status === 'pending') {
+    const timerId = setInterval(() => {
+      const start = startTimes.get(exercise.id);
+      if (!start) return;
+      const el = container.querySelector('[data-timer]');
+      if (el) el.textContent = formatElapsed(Date.now() - start);
+    }, 1000);
+    tickerByContainer.set(container, timerId);
+  }
 }
+
+// ── Header ───────────────────────────────────────────────────
 
 function buildHeader(exercise, index, status) {
   const head = document.createElement('header');
-  head.className = 'exercise__head';
+  head.className = 'exercise-card__head';
 
-  const left = document.createElement('div');
-  left.className = 'exercise__title';
-  left.innerHTML = `
-    <strong>Ejercicio ${index + 1}</strong>
-    <span class="exercise__source">${exercise.sourceNote}</span>
+  const concept = exercise.types?.[exercise.correctType] || exercise.concept || '';
+  const statusBadge = status.status === 'done'
+    ? '<span class="status-badge status-badge--done">✓ Resuelto</span>'
+    : status.status === 'failed'
+      ? '<span class="status-badge status-badge--failed">✗ Fallado</span>'
+      : '<span class="status-badge status-badge--pending">Pendiente</span>';
+
+  const startedAt = startTimes.get(exercise.id);
+  const timerHtml = status.status === 'pending'
+    ? `<span class="exercise-timer dim" data-timer>${formatElapsed(startedAt ? Date.now() - startedAt : 0)}</span>`
+    : '';
+
+  head.innerHTML = `
+    <div class="exercise-card__title">
+      <h3>Ejercicio ${index + 1}${concept ? ' · ' + escapeHtml(concept) : ''}</h3>
+      <div class="exercise-card__source dim">${escapeHtml(exercise.sourceNote || '')}</div>
+    </div>
+    <div class="exercise-card__meta">
+      ${timerHtml}
+      ${statusBadge}
+    </div>
   `;
-
-  const badge = document.createElement('span');
-  badge.className = 'status-badge status-badge--' + status.status;
-  badge.textContent = labelForStatus(status.status);
-
-  head.appendChild(left);
-  head.appendChild(badge);
   return head;
 }
 
+// ── Enunciado ────────────────────────────────────────────────
+
 function buildStatement(exercise) {
   const section = document.createElement('section');
-  section.className = 'exercise-section';
-  section.innerHTML = '<div class="section-label">Enunciado</div>';
+  section.className = 'exercise-statement';
 
-  const stmt = document.createElement('div');
-  stmt.className = 'statement statement--formatted';
-  splitStatement(exercise.statement).forEach((part) => {
-    const p = document.createElement('p');
-    p.textContent = part;
-    stmt.appendChild(p);
+  const parts = splitStatement(exercise.statement);
+  parts.forEach((part) => {
+    const m = part.match(/^\(([a-z])\)\s*(.+)$/i);
+    if (m) {
+      const wrap = document.createElement('div');
+      wrap.className = 'exercise-statement__part';
+      wrap.innerHTML = `<span class="exercise-statement__label">${m[1]})</span> ${escapeHtml(m[2])}`;
+      section.appendChild(wrap);
+    } else {
+      const p = document.createElement('p');
+      p.textContent = part;
+      section.appendChild(p);
+    }
   });
-
-  section.appendChild(stmt);
   return section;
 }
 
+// ── Paso 1: tipo ─────────────────────────────────────────────
+
 function buildTypeStep(exercise, state, status, onChange) {
   const wrap = document.createElement('section');
-  wrap.className = 'step';
-  const title = document.createElement('h4');
-  title.textContent = 'Paso 1 · ¿Qué tipo de ejercicio es?';
-  wrap.appendChild(title);
+  wrap.className = 'exercise-step exercise-step--task';
 
-  const row = document.createElement('div');
-  row.className = 'type-row';
+  wrap.innerHTML = `
+    <div class="step-number">1</div>
+    <div class="step-body">
+      <h4 class="step-title">¿Qué tipo de ejercicio es?</h4>
+      <div class="type-grid"></div>
+      <div class="step-feedback"></div>
+    </div>
+  `;
 
+  const grid = wrap.querySelector('.type-grid');
+  const fbHost = wrap.querySelector('.step-feedback');
   const solved = typeHasBeenSolved(status, exercise);
 
   exercise.types.forEach((typeLabel, idx) => {
@@ -112,7 +154,6 @@ function buildTypeStep(exercise, state, status, onChange) {
 
     if (tried && isCorrect) btn.classList.add('type-btn--correct');
     else if (tried) btn.classList.add('type-btn--wrong');
-
     if (solved && !isCorrect) btn.disabled = true;
 
     btn.addEventListener('click', () => {
@@ -123,76 +164,66 @@ function buildTypeStep(exercise, state, status, onChange) {
       onChange();
     });
 
-    row.appendChild(btn);
+    grid.appendChild(btn);
   });
 
-  wrap.appendChild(row);
-
   if (solved) {
-    const ok = document.createElement('p');
-    ok.className = 'feedback feedback--success';
-    ok.innerHTML = `<strong>✓ Correcto.</strong> ${exercise.typeExplanation}`;
-    wrap.appendChild(ok);
+    fbHost.innerHTML = `<div class="feedback feedback--success"><strong>✓ Correcto.</strong> ${escapeHtml(exercise.typeExplanation || '')}</div>`;
   } else if (status.typeAttempts.length > 0) {
-    const fail = document.createElement('p');
-    fail.className = 'feedback feedback--wrong';
-    fail.innerHTML = `<strong>✗ No es ese tipo.</strong> Pista: ${exercise.hints[0]}`;
-    wrap.appendChild(fail);
+    fbHost.innerHTML = `<div class="feedback feedback--wrong"><strong>✗ No es ese tipo.</strong> Pista: ${escapeHtml(exercise.hints[0] || '')}</div>`;
   }
 
   return wrap;
 }
+
+// ── Paso 2: respuesta ────────────────────────────────────────
 
 function buildAnswerStep(exercise, state, status, onChange) {
   const wrap = document.createElement('section');
-  wrap.className = 'step';
-  const title = document.createElement('h4');
-  title.textContent = 'Paso 2 · Resuelve';
-  wrap.appendChild(title);
+  wrap.className = 'exercise-step exercise-step--task';
+  wrap.innerHTML = `
+    <div class="step-number">2</div>
+    <div class="step-body">
+      <h4 class="step-title">Resuelve</h4>
+      <div class="answer-host"></div>
+      <div class="exercise-actions"></div>
+      <div class="hints-host"></div>
+    </div>
+  `;
+
+  const answerHost = wrap.querySelector('.answer-host');
+  const actionsHost = wrap.querySelector('.exercise-actions');
+  const hintsHost = wrap.querySelector('.hints-host');
 
   if (exercise.answer !== null) {
-    wrap.appendChild(buildNumericAnswer(exercise, state, status, onChange));
+    buildNumericAnswer(answerHost, actionsHost, exercise, state, status, onChange);
   } else {
-    wrap.appendChild(buildTextAnswer(exercise, state, onChange));
+    buildTextAnswer(answerHost, actionsHost, exercise, state, onChange);
   }
 
-  wrap.appendChild(buildHintsBlock(exercise, state, status, onChange));
-  wrap.appendChild(buildShowSolutionRow(exercise, state, onChange));
+  // Botones de pista y solución agrupados con la acción primaria
+  buildHintsRow(actionsHost, hintsHost, exercise, state, status, onChange);
+  buildShowSolutionBtn(actionsHost, exercise, state, onChange);
 
   return wrap;
 }
 
-function buildNumericAnswer(exercise, state, status, onChange) {
-  const row = document.createElement('div');
-  row.className = 'answer-row';
-
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.step = 'any';
-  input.placeholder = 'Tu respuesta numérica';
-  input.className = 'answer-input';
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn btn--primary';
-  btn.textContent = 'Comprobar';
-
-  const fb = document.createElement('p');
-  fb.className = 'feedback';
-
+function buildNumericAnswer(host, actionsHost, exercise, state, status, onChange) {
+  host.innerHTML = `
+    <label class="answer-label">
+      <span class="answer-label__text">Tu respuesta:</span>
+      <input type="number" step="any" class="answer-input" placeholder="Número" />
+    </label>
+  `;
+  const input = host.querySelector('input');
   const lastAttempt = status.answerAttempts[status.answerAttempts.length - 1];
-  if (typeof lastAttempt === 'number') {
-    input.value = lastAttempt;
-    if (Math.abs(lastAttempt - exercise.answer) <= exercise.tolerance) {
-      fb.classList.add('feedback--success');
-      fb.innerHTML = `<strong>✓ Correcto.</strong> Pulsa "Comprobar" otra vez para confirmar y marcar como resuelto.`;
-    } else {
-      fb.classList.add('feedback--wrong');
-      fb.textContent = 'Casi. Repasa los pasos y vuelve a probar.';
-    }
-  }
+  if (typeof lastAttempt === 'number') input.value = lastAttempt;
 
-  btn.addEventListener('click', () => {
+  const checkBtn = document.createElement('button');
+  checkBtn.type = 'button';
+  checkBtn.className = 'btn btn--primary';
+  checkBtn.textContent = 'Comprobar';
+  checkBtn.addEventListener('click', () => {
     const val = parseFloat(input.value);
     if (Number.isNaN(val)) return;
     const attempts = [...status.answerAttempts, val];
@@ -205,128 +236,142 @@ function buildNumericAnswer(exercise, state, status, onChange) {
     }
     onChange();
   });
+  actionsHost.appendChild(checkBtn);
 
-  row.appendChild(input);
-  row.appendChild(btn);
-
-  const wrap = document.createDocumentFragment();
-  wrap.appendChild(row);
-  if (fb.textContent || fb.innerHTML) wrap.appendChild(fb);
-  return wrap;
+  // Mostrar feedback inline si hubo intentos
+  if (typeof lastAttempt === 'number' && Math.abs(lastAttempt - exercise.answer) > exercise.tolerance) {
+    const fb = document.createElement('div');
+    fb.className = 'feedback feedback--wrong';
+    fb.textContent = 'Repasa los pasos y vuelve a probar.';
+    host.appendChild(fb);
+  }
 }
 
-function buildTextAnswer(exercise, state, onChange) {
-  const wrap = document.createElement('div');
-  wrap.className = 'text-answer';
-
-  const p = document.createElement('p');
-  p.className = 'muted';
-  p.textContent = 'Razonamiento esperado:';
-  wrap.appendChild(p);
-
-  const txt = document.createElement('p');
-  txt.textContent = exercise.textAnswer || '';
-  wrap.appendChild(txt);
-
+function buildTextAnswer(host, actionsHost, exercise, state, onChange) {
+  host.innerHTML = `
+    <p class="muted answer-label__text">Razonamiento esperado:</p>
+    <p>${escapeHtml(exercise.textAnswer || '')}</p>
+  `;
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn btn--primary';
   btn.textContent = 'Lo tengo';
   btn.addEventListener('click', () => {
+    const status = getExerciseStatus(state, exercise.id);
     setExerciseStatus(state, exercise.id, { status: 'done' });
     dispatchResult(exercise, status, 'correct');
     onChange();
   });
-  wrap.appendChild(btn);
-
-  return wrap;
+  actionsHost.appendChild(btn);
 }
 
-function buildHintsBlock(exercise, state, status, onChange) {
-  const wrap = document.createElement('div');
-  wrap.className = 'hints';
-
+function buildHintsRow(actionsHost, hintsHost, exercise, state, status, onChange) {
   const used = status.hintsUsed;
-  const remaining = exercise.hints.length - used;
+  const remaining = (exercise.hints?.length || 0) - used;
 
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn btn--ghost';
-  btn.textContent = remaining > 0 ? `Pista (${remaining} restantes)` : 'Sin más pistas';
+  btn.textContent = remaining > 0 ? `Pista (${remaining})` : 'Sin más pistas';
   btn.disabled = remaining <= 0;
   btn.addEventListener('click', () => {
     setExerciseStatus(state, exercise.id, { hintsUsed: used + 1 });
     onChange();
   });
-  wrap.appendChild(btn);
+  actionsHost.appendChild(btn);
 
-  if (used > 0) {
-    const list = document.createElement('ol');
-    list.className = 'hint-list';
-    for (let i = 0; i < used; i++) {
-      const li = document.createElement('li');
-      li.textContent = exercise.hints[i];
-      list.appendChild(li);
-    }
-    wrap.appendChild(list);
+  // Pintar pistas usadas en cards separadas
+  for (let i = 0; i < used; i++) {
+    const hint = document.createElement('div');
+    hint.className = 'exercise-hint';
+    hint.innerHTML = `<span class="exercise-hint__icon">💡</span><div><strong>Pista ${i + 1}</strong><br>${escapeHtml(exercise.hints[i] || '')}</div>`;
+    hintsHost.appendChild(hint);
+  }
+}
+
+function buildShowSolutionBtn(actionsHost, exercise, state, onChange) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn--danger';
+  btn.textContent = 'Ver solución';
+  btn.addEventListener('click', () => {
+    const status = getExerciseStatus(state, exercise.id);
+    setExerciseStatus(state, exercise.id, { status: 'failed', solutionShown: true });
+    dispatchResult(exercise, status, 'gave_up');
+    onChange();
+  });
+  actionsHost.appendChild(btn);
+}
+
+// ── Resultado banner + Solución ──────────────────────────────
+
+function buildResultBanner(exercise, status) {
+  const banner = document.createElement('div');
+  if (status.status === 'done') {
+    banner.className = 'result-banner result-banner--ok';
+    banner.innerHTML = `<span>✓</span><strong>CORRECTO</strong>`;
+  } else {
+    banner.className = 'result-banner result-banner--fail';
+    banner.innerHTML = `<span>✗</span><strong>${status.solutionShown ? 'SIN RESOLVER' : 'INCORRECTO'}</strong>`;
+  }
+  return banner;
+}
+
+function buildSolution(exercise, status) {
+  const wrap = document.createElement('section');
+  wrap.className = 'exercise-solution';
+
+  const header = document.createElement('h4');
+  header.className = 'exercise-solution__title';
+  header.textContent = 'SOLUCIÓN PASO A PASO';
+  wrap.appendChild(header);
+
+  exercise.solution.forEach((step, idx) => {
+    const stepEl = document.createElement('div');
+    stepEl.className = 'exercise-step exercise-step--solution';
+    stepEl.innerHTML = `
+      <div class="step-number">${idx + 1}</div>
+      <div class="step-body">
+        <h4 class="step-title">${stepTitleFromHtml(step)}</h4>
+        <div class="step-content">${step}</div>
+      </div>
+    `;
+    wrap.appendChild(stepEl);
+  });
+
+  if (exercise.answer !== null) {
+    const final = document.createElement('div');
+    final.className = `exercise-result-final${status.status === 'failed' ? ' failed' : ''}`;
+    final.innerHTML = `
+      <div class="exercise-result-final__label">RESULTADO</div>
+      <div class="exercise-result-final__value">${exercise.answer}</div>
+    `;
+    wrap.appendChild(final);
   }
 
   return wrap;
 }
 
-function buildShowSolutionRow(exercise, state, onChange) {
+function buildResetRow(exercise, state, onChange) {
   const row = document.createElement('div');
-  row.className = 'show-solution-row';
+  row.className = 'exercise-actions exercise-actions--reset';
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn btn--danger-ghost';
-  btn.textContent = 'Ver solución';
+  btn.className = 'btn btn--ghost';
+  btn.textContent = 'Reintentar desde cero';
   btn.addEventListener('click', () => {
-    const status = getExerciseStatus(state, exercise.id);
-    setExerciseStatus(state, exercise.id, {
-      status: 'failed',
-      solutionShown: true
-    });
-    dispatchResult(exercise, status, 'gave_up');
+    resetExercise(state, exercise.id);
+    startTimes.delete(exercise.id);
     onChange();
   });
   row.appendChild(btn);
   return row;
 }
 
-function buildSolution(exercise, status) {
-  const wrap = document.createElement('section');
-  wrap.className = 'step solution exercise-section';
-  const label = document.createElement('div');
-  label.className = 'section-label';
-  label.textContent = 'Solución paso a paso';
-  wrap.appendChild(label);
-
-  const ol = document.createElement('ol');
-  ol.className = 'solution-steps';
-  exercise.solution.forEach((step, index) => {
-    const li = document.createElement('li');
-    li.className = 'solution-step';
-    li.innerHTML = `
-      <div class="solution-step__title">Paso ${index + 1}: ${stepTitleFromHtml(step)}</div>
-      <div class="solution-step__content">${step}</div>
-    `;
-    ol.appendChild(li);
-  });
-  wrap.appendChild(ol);
-
-  if (exercise.answer !== null) {
-    const ans = document.createElement('p');
-    ans.className = 'final-answer final-answer--large';
-    ans.innerHTML = `<strong>Respuesta:</strong> <span>${exercise.answer}</span>`;
-    wrap.appendChild(ans);
-  }
-
-  return wrap;
-}
+// ── helpers ──────────────────────────────────────────────────
 
 function splitStatement(text) {
-  return text
+  return String(text || '')
     .split(/(?=\([a-z]\)\s)/i)
     .map((part) => part.trim())
     .filter(Boolean);
@@ -335,30 +380,22 @@ function splitStatement(text) {
 function stepTitleFromHtml(html) {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const sentence = text.split(/[.:]/)[0];
-  return sentence.length > 70 ? sentence.slice(0, 67) + '...' : sentence || 'Resolver';
-}
-
-function buildResetRow(exercise, state, onChange) {
-  const row = document.createElement('div');
-  row.className = 'reset-row';
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'btn btn--ghost';
-  btn.textContent = 'Reintentar desde cero';
-  btn.addEventListener('click', () => {
-    resetExercise(state, exercise.id);
-    onChange();
-  });
-  row.appendChild(btn);
-  return row;
+  return sentence.length > 70 ? sentence.slice(0, 67) + '…' : sentence || 'Resolver';
 }
 
 function typeHasBeenSolved(status, exercise) {
   return status.typeAttempts.includes(exercise.correctType);
 }
 
-function labelForStatus(s) {
-  if (s === 'done') return '✓ Resuelto';
-  if (s === 'failed') return '✗ Fallado';
-  return 'Pendiente';
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `⏱ ${m}:${String(s).padStart(2, '0')}`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
 }

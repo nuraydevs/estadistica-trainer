@@ -93,6 +93,37 @@ async function reloadSocialProfile() {
 }
 
 async function rerender() {
+  try {
+    await rerenderInner();
+  } catch (err) {
+    console.error('[main] render error', err);
+    showFatalErrorScreen(err);
+  }
+}
+
+function showFatalErrorScreen(err) {
+  root.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:center; min-height: 100vh; padding: var(--space-6);">
+      <div style="max-width: 420px; text-align: center; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-6);">
+        <h2 style="margin: 0 0 var(--space-3); font-size: 16px;">Algo ha ido mal</h2>
+        <p class="muted" style="margin: 0 0 var(--space-4); font-size: 13px; line-height: 1.55;">Recarga la página o vuelve al inicio. Si el problema persiste, contacta con los administradores.</p>
+        <pre style="font-size: 11px; color: var(--text-tertiary); background: var(--bg-base); padding: 8px; border-radius: var(--radius); white-space: pre-wrap; word-break: break-word; max-height: 100px; overflow: auto; margin: 0 0 var(--space-4);">${(err?.message || String(err)).replace(/[<>&]/g, '')}</pre>
+        <div style="display: flex; gap: 8px; justify-content: center;">
+          <button class="btn" data-action="reload">Recargar</button>
+          <button class="btn btn--primary" data-action="home">Inicio</button>
+        </div>
+      </div>
+    </div>
+  `;
+  root.querySelector('[data-action="reload"]')?.addEventListener('click', () => location.reload());
+  root.querySelector('[data-action="home"]')?.addEventListener('click', () => {
+    state.view = 'hub';
+    state.currentSubject = null;
+    rerender();
+  });
+}
+
+async function rerenderInner() {
   try { state.currentSubjectInstance?.unmount?.(); } catch {}
   state.currentSubjectInstance = null;
 

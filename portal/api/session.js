@@ -10,6 +10,7 @@
 //     no tenemos GeoIP en Vercel sin servicio externo).
 
 import { getAuthedUser, readClientIp, fingerprint, jsonReply, readJsonBody } from './_lib/auth-helpers.js';
+import { log, validate } from './_lib/logger.js';
 import { randomUUID } from 'node:crypto';
 
 const ACTIVE_WINDOW_MS = 5 * 60 * 1000; // sesión "activa" si ping <5min
@@ -23,12 +24,17 @@ export default async function handler(req, res) {
 
   let body;
   try { body = await readJsonBody(req); } catch { return jsonReply(res, 400, { error: 'bad_json' }); }
-  const action = String(body?.action || '').trim();
-
+  const errors = validate(body, {
+    action: { type: 'string', required: true, enum: ['register', 'ping', 'end'] }
+  });
+  if (errors) {
+    log.warn('session.bad_request', { user: user.id, errors });
+    return jsonReply(res, 400, { error: 'bad_request', detail: errors });
+  }
+  const action = body.action;
   if (action === 'register') return register(req, res, { supabase, user, body });
   if (action === 'ping') return ping(req, res, { supabase, user, body });
   if (action === 'end') return endSession(req, res, { supabase, user, body });
-  return jsonReply(res, 400, { error: 'bad_action' });
 }
 
 async function register(req, res, { supabase, user, body }) {
